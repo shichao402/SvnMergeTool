@@ -257,41 +257,76 @@ def calculate_file_hash(file_path: str) -> str:
 
 ## 调试规则（强制）
 
-### 必须使用预置脚本
+### 标准调试流程
 
-**原则：** 调试 GitHub Actions 时必须使用项目中已有的调试脚本，禁止临时组装命令
+**原则：** 调试 GitHub Actions 必须遵循标准流程，使用预置脚本，禁止临时组装命令
 
-**可用脚本：**
-- `scripts/debug_workflow.sh` - 综合调试工具，查看运行状态和失败日志
-- `scripts/view_failed_logs.sh` - 查看失败步骤的日志
-- `scripts/view_job_logs.sh` - 查看特定 job 的日志
-- `scripts/check_workflow_status.sh` - 检查 workflow 运行状态
+**标准流程：**
+1. **启动 workflow 并获取运行 ID**
+   - 使用脚本启动 workflow
+   - 脚本自动获取并返回运行 ID
 
-**使用方式：**
-```bash
-# 调试最新的运行（自动获取最新运行）
-bash scripts/debug_workflow.sh
+2. **持续监控 workflow 状态**
+   - 脚本每 10 秒检查一次状态
+   - 显示当前状态和结论
+   - 持续监控直到完成或超时
 
-# 调试指定的运行
-bash scripts/debug_workflow.sh <run-id>
+3. **成功处理**
+   - 如果 workflow 成功完成，任务结束
 
-# 查看失败日志
-bash scripts/view_failed_logs.sh [run-id] [workflow-name]
+4. **失败处理**
+   - 如果 workflow 失败，自动获取失败日志
+   - 分析日志定位问题
+   - 修复问题后回到步骤 1 重新执行
 
-# 查看特定 job 的日志
-bash scripts/view_job_logs.sh <run-id> <job-name> [--failed-only]
+### 必须使用的脚本
+
+**主要脚本（推荐）：**
+- `scripts/run_and_monitor_workflow.ps1` - **完整流程脚本**，包含启动、监控、失败处理
+  ```powershell
+  # 启动并监控 workflow（自动重试）
+  powershell -ExecutionPolicy Bypass -File scripts\run_and_monitor_workflow.ps1 [workflow-name] [version]
+  ```
+
+**辅助脚本：**
+- `scripts/debug_workflow.ps1` - 查看运行状态和失败信息
+- `scripts/monitor_workflow.ps1` - 监控指定运行直到完成
+- `scripts/view_failed_logs.sh` - 查看失败步骤的日志（bash）
+- `scripts/view_job_logs.sh` - 查看特定 job 的日志（bash）
+
+### 标准调试流程示例
+
+```powershell
+# 方式1：使用完整流程脚本（推荐）
+powershell -ExecutionPolicy Bypass -File scripts\run_and_monitor_workflow.ps1 build.yml
+
+# 方式2：手动执行流程
+# Step 1: 启动 workflow
+gh workflow run build.yml
+$runId = (gh run list --workflow=build.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+
+# Step 2: 监控 workflow
+powershell -ExecutionPolicy Bypass -File scripts\monitor_workflow.ps1 -RunId $runId
+
+# Step 3: 如果失败，查看日志
+powershell -ExecutionPolicy Bypass -File scripts\debug_workflow.ps1 -RunId $runId
 ```
 
-**禁止行为：**
+### 禁止行为
+
 - ❌ 临时组装 `gh run view` 命令进行调试
 - ❌ 使用复杂的 PowerShell 命令组合
 - ❌ 手动拼接 JSON 查询命令
 - ❌ 不使用脚本而直接执行 GitHub CLI 命令
+- ❌ 不遵循标准调试流程
+- ❌ 失败后不查看日志就继续
 
-**必须遵守：**
-- ✅ 调试前先使用 `scripts/debug_workflow.sh` 获取完整信息
-- ✅ 查看失败日志必须使用 `scripts/view_failed_logs.sh`
-- ✅ 需要查看特定 job 时使用 `scripts/view_job_logs.sh`
+### 必须遵守
+
+- ✅ 必须使用 `scripts/run_and_monitor_workflow.ps1` 或遵循标准流程
+- ✅ 启动 workflow 后必须持续监控状态（每 10 秒检查一次）
+- ✅ 失败后必须使用脚本获取失败日志
+- ✅ 分析日志后修复问题，然后重新执行流程
 - ✅ 所有调试操作都应该通过脚本完成
 
 ## 禁止行为
