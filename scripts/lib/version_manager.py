@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-版本号管理工具
+Version Management Tool
 
-用于管理项目版本号，支持：
-- 读取版本号
-- 设置版本号
-- 递增版本号
-- 同步版本号到项目配置文件
+Manage project version numbers, supports:
+- Read version number
+- Set version number
+- Increment version number
+- Sync version number to project configuration file
 """
 
 import argparse
 import json
 import re
 import sys
+import io
 from pathlib import Path
 from typing import Optional, Tuple
+
+# Fix encoding for Windows
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 try:
     import yaml
 except ImportError:
-    print("错误: 需要安装 PyYAML 库")
-    print("请运行: pip install pyyaml")
+    print("Error: PyYAML library is required")
+    print("Please run: pip install pyyaml")
     sys.exit(1)
 
 
@@ -266,4 +273,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
