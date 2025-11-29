@@ -11,7 +11,7 @@ compatibility:
 
 update:
   github:
-    url: https://github.com/owner/repo/releases/download/UpdateConfig/update_config_github.json
+    url: https://github.com/shichao402/SvnMergeTool/releases/download/UpdateConfig/update_config_github.json
 
 
 

@@ -1,0 +1,101 @@
+name: Test Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.0.7）'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  test-release:
+    name: Test Release Logic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Extract version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(python3 scripts/lib/version_manager.py extract app)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_number=${VERSION%%+*}" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+          echo "Version number (without build): ${VERSION%%+*}"
+      
+      - name: Test update config generation
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          version = os.environ['VERSION']
+          version_number = version.split('+')[0]
+          owner = os.environ.get('GITHUB_REPOSITORY', '').split('/')[0]
+          repo = os.environ.get('GITHUB_REPOSITORY', '').split('/')[1]
+          
+          config = {
+              "app": {
+                  "version": version,
+                  "versionNumber": version_number,
+                  "platforms": {
+                      "macos": {
+                          "version": version,
+                          "versionNumber": version_number,
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
+                          "fileType": "zip",
+                          "platform": "macos",
+                          "fileHash": "test_hash_macos"
+                      },
+                      "windows": {
+                          "version": version,
+                          "versionNumber": version_number,
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
+                          "fileType": "zip",
+                          "platform": "windows",
+                          "fileHash": "test_hash_windows"
+                      }
+                  }
+              },
+              "updateCheckUrl": f"https://github.com/{owner}/{repo}/releases/download/UpdateConfig/update_config_github.json",
+              "lastUpdated": os.environ.get('GITHUB_SHA', '')
+          }
+          
+          print("Generated update config:")
+          print(json.dumps(config, indent=2, ensure_ascii=False))
+          
+          # Validate structure
+          assert 'app' in config
+          assert 'version' in config['app']
+          assert 'platforms' in config['app']
+          assert 'macos' in config['app']['platforms']
+          assert 'windows' in config['app']['platforms']
+          assert 'updateCheckUrl' in config
+          
+          print("\n✅ Update config structure is valid")
+          EOF
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+

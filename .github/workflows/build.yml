@@ -61,12 +61,13 @@ jobs:
           ZIP_NAME="SvnMergeTool_macos_${VERSION}.zip"
           zip -r "../../../../${ZIP_NAME}" SvnMergeTool.app
           echo "Created: ${ZIP_NAME}"
+          echo "ZIP path: $(pwd)/../../../../${ZIP_NAME}"
       
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: build/macos/Build/Products/Release/SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip
+          path: SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
   build-windows:
@@ -116,12 +117,13 @@ jobs:
           $zipName = "SvnMergeTool_windows_$version.zip"
           Compress-Archive -Path * -DestinationPath "../../../../$zipName" -Force
           Write-Host "Created: $zipName"
+          Write-Host "ZIP path: $PWD\..\..\..\..\$zipName"
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: build/windows/x64/runner/Release/SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip
+          path: SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
   increment-build-number:

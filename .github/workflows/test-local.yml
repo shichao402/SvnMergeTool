@@ -1,0 +1,42 @@
+name: Test Local Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-version-extraction:
+    name: Test Version Extraction
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Extract version
+        id: version
+        run: |
+          python3 scripts/lib/version_manager.py extract app --json > version.json
+          cat version.json
+          VERSION=$(python3 scripts/lib/version_manager.py extract app)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Display version
+        run: |
+          echo "Extracted version: ${{ steps.version.outputs.version }}"
+          echo "Version file content:"
+          cat version.json
+      
+      - name: Sync version to pubspec.yaml
+        run: |
+          python3 scripts/lib/version_manager.py sync app
+          echo "Version synced to pubspec.yaml"
+          echo "pubspec.yaml version:"
+          grep "^version:" pubspec.yaml || echo "version not found in pubspec.yaml"
+

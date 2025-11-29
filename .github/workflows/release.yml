@@ -49,33 +49,68 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { data: runs } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'build.yml',
-              status: 'success',
-              per_page: 10
-            });
-            
             const versionNumber = '${{ steps.version.outputs.version_number }}';
             const buildTag = `build${versionNumber}`;
             
-            // 查找包含对应构建标签的 workflow run
+            console.log(`查找构建标签: ${buildTag}`);
+            
+            // 首先尝试查找对应的构建标签
             let targetRun = null;
-            for (const run of runs.workflow_runs) {
-              if (run.head_branch === 'main' || run.head_branch === 'master') {
-                // 检查 commit message 或 tag
-                const commit = await github.rest.repos.getCommit({
+            try {
+              // 获取标签信息
+              const { data: refs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${buildTag}`
+              });
+              
+              if (refs.length > 0) {
+                const tagSha = refs[0].object.sha;
+                console.log(`找到构建标签 ${buildTag}，SHA: ${tagSha}`);
+                
+                // 查找由该标签触发的 workflow run
+                const { data: runs } = await github.rest.actions.listWorkflowRuns({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  ref: run.head_sha
+                  workflow_id: 'build.yml',
+                  status: 'success',
+                  per_page: 20
                 });
                 
-                // 尝试从最近的运行中获取
-                if (!targetRun) {
+                // 查找匹配的 workflow run
+                for (const run of runs.workflow_runs) {
+                  if (run.head_sha === tagSha || run.head_branch === buildTag) {
+                    targetRun = run;
+                    break;
+                  }
+                }
+              }
+            } catch (error) {
+              console.log(`查找标签时出错: ${error.message}`);
+            }
+            
+            // 如果没找到，查找最近的成功的构建运行
+            if (!targetRun) {
+              console.log('未找到匹配的构建标签，查找最近的构建运行...');
+              const { data: runs } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'build.yml',
+                status: 'success',
+                per_page: 10
+              });
+              
+              // 优先查找 main 分支的运行
+              for (const run of runs.workflow_runs) {
+                if (run.head_branch === 'main' || run.head_branch === 'master') {
                   targetRun = run;
                   break;
                 }
+              }
+              
+              // 如果还是没有，使用最新的
+              if (!targetRun && runs.workflow_runs.length > 0) {
+                targetRun = runs.workflow_runs[0];
               }
             }
             
@@ -83,19 +118,15 @@ jobs:
               core.setOutput('run_id', targetRun.id);
               core.setOutput('run_number', targetRun.run_number);
               console.log(`找到构建运行: #${targetRun.run_number} (ID: ${targetRun.id})`);
-            } else if (runs.workflow_runs.length > 0) {
-              // 如果没有找到 main 分支的运行，使用最新的
-              targetRun = runs.workflow_runs[0];
-              core.setOutput('run_id', targetRun.id);
-              core.setOutput('run_number', targetRun.run_number);
-              console.log(`使用最新的构建运行: #${targetRun.run_number} (ID: ${targetRun.id})`);
+              console.log(`构建分支: ${targetRun.head_branch}, SHA: ${targetRun.head_sha}`);
             } else {
               core.setOutput('run_id', '');
               core.setOutput('run_number', '');
-              console.log('未找到构建运行');
+              console.log('⚠️ 未找到构建运行，将跳过 artifact 下载');
             }
       
       - name: Download macOS artifact
+        if: steps.find-build.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: macos-build
@@ -105,6 +136,7 @@ jobs:
           if-no-files-found: warn
       
       - name: Download Windows artifact
+        if: steps.find-build.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: windows-build
@@ -112,6 +144,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ steps.find-build.outputs.run_id }}
           if-no-files-found: warn
+      
+      - name: Create artifacts directory if missing
+        if: steps.find-build.outputs.run_id == ''
+        run: |
+          mkdir -p artifacts/macos artifacts/windows
+          echo "⚠️ 未找到构建运行，跳过 artifact 下载"
       
       - name: Calculate file hashes
         id: hashes

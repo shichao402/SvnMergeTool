@@ -1,0 +1,54 @@
+name: Test Increment Build Number
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-increment-build:
+    name: Test Increment Build Number
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Show current version
+        run: |
+          echo "Current version:"
+          python3 scripts/lib/version_manager.py extract app
+          cat VERSION.yaml
+      
+      - name: Increment build number
+        run: |
+          python3 scripts/lib/version_manager.py bump app build
+          echo "After increment:"
+          python3 scripts/lib/version_manager.py extract app
+          cat VERSION.yaml
+      
+      - name: Show git status
+        run: |
+          git status
+          git diff VERSION.yaml || echo "No changes (dry run mode)"
+      
+      # Note: In local testing, we skip the actual commit/push
+      # In real GitHub Actions, this would commit and push
+      - name: Simulate commit (dry run)
+        run: |
+          echo "In real workflow, this would:"
+          echo "  git config user.name 'github-actions[bot]'"
+          echo "  git config user.email 'github-actions[bot]@users.noreply.github.com'"
+          echo "  git add VERSION.yaml"
+          echo "  git commit -m 'Build: Increment build number'"
+          echo "  git push origin HEAD:main"
+
