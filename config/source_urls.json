@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "description": "SVN 源 URL 配置文件",
+  "source_urls": [
+    {
+      "name": "示例：项目主干",
+      "url": "https://svn.example.com/repos/project/trunk",
+      "description": "这是一个示例配置，请修改为实际的 SVN 地址",
+      "enabled": false
+    }
+  ],
+  "settings": {
+    "auto_load_history": true,
+    "max_history_items": 10,
+    "default_max_retries": 5,
+    "auto_load_logs_on_startup": false,
+    "svn_log_limit": 200
+  }
+}

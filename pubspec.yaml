@@ -1,0 +1,64 @@
+name: SvnMergeTool
+description: SVN 自动合并工具 - Flutter 版本
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI 组件
+  cupertino_icons: ^1.0.8
+  
+  # 状态管理
+  provider: ^6.1.2
+  
+  # 持久化存储
+  shared_preferences: ^2.3.2
+  path_provider: ^2.1.4
+  
+  # 安全存储（凭证）
+  flutter_secure_storage: ^9.2.2
+  
+  # 进程执行
+  process_run: ^1.2.4
+  
+  # JSON 序列化
+  json_annotation: ^4.9.0
+  
+  # 路径操作
+  path: ^1.9.1
+  
+  # 文件选择器
+  file_picker: ^10.3.7
+  
+  # 日期时间
+  intl: ^0.20.2
+  
+  # SQLite 数据库（支持所有平台包括 Windows）
+  sqlite3: ^2.4.5
+  sqlite3_flutter_libs: ^0.5.24
+
+  # XML 解析
+  xml: ^6.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.10.4
+  json_serializable: ^6.11.3
+
+# dependency_overrides:
+  # 如果需要强制特定版本，可以在这里覆盖
+
+flutter:
+  uses-material-design: true
+  
+  # 应用图标和资源
+  assets:
+    - assets/config/source_urls.json
+
