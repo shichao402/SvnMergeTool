@@ -32,26 +32,26 @@ except ImportError:
 
 
 class VersionManager:
-    """版本号管理器"""
+    """Version Manager"""
     
     def __init__(self, version_file: str = "VERSION.yaml"):
-        """初始化版本管理器"""
+        """Initialize version manager"""
         self.project_root = self._find_project_root()
         self.version_file = self.project_root / version_file
         
         if not self.version_file.exists():
-            raise FileNotFoundError(f"版本文件不存在: {self.version_file}")
+            raise FileNotFoundError(f"Version file not found: {self.version_file}")
     
     def _find_project_root(self) -> Path:
-        """查找项目根目录（包含 VERSION.yaml 的目录）"""
+        """Find project root directory (contains VERSION.yaml)"""
         current = Path.cwd()
         
-        # 向上查找，直到找到 VERSION.yaml 或到达根目录
+        # Search upward until finding VERSION.yaml or reaching root
         for parent in [current] + list(current.parents):
             if (parent / "VERSION.yaml").exists():
                 return parent
         
-        # 如果找不到，使用当前目录
+        # If not found, use current directory
         return current
     
     def _load_version_file(self) -> dict:
@@ -78,10 +78,10 @@ class VersionManager:
             version_part = version_str
             build = 0
         
-        # 解析版本号部分
+        # Parse version number part
         parts = version_part.split('.')
         if len(parts) != 3:
-            raise ValueError(f"版本号格式错误: {version_str}，应为 x.y.z+build")
+            raise ValueError(f"Invalid version format: {version_str}, expected x.y.z+build")
         
         major = int(parts[0])
         minor = int(parts[1])
@@ -90,22 +90,22 @@ class VersionManager:
         return (major, minor, patch, build)
     
     def _format_version(self, major: int, minor: int, patch: int, build: int) -> str:
-        """格式化版本号字符串"""
+        """Format version string"""
         return f"{major}.{minor}.{patch}+{build}"
     
     def get_version(self, component: str = "app") -> str:
-        """获取版本号"""
+        """Get version number"""
         data = self._load_version_file()
         component_key = component if component in data else "app"
         
         if component_key not in data or "version" not in data[component_key]:
-            raise ValueError(f"组件 {component_key} 的版本号不存在")
+            raise ValueError(f"Version for component {component_key} not found")
         
         return data[component_key]["version"]
     
     def set_version(self, component: str, version: str):
-        """设置版本号"""
-        # 验证版本号格式
+        """Set version number"""
+        # Validate version format
         self._parse_version(version)
         
         data = self._load_version_file()
@@ -114,14 +114,14 @@ class VersionManager:
         
         data[component]["version"] = version
         self._save_version_file(data)
-        print(f"已设置 {component} 版本号为: {version}")
+        print(f"Set {component} version to: {version}")
     
     def bump_version(self, component: str, part: str):
-        """递增版本号
+        """Increment version number
         
         Args:
-            component: 组件名称（如 "app"）
-            part: 要递增的部分（major, minor, patch, build）
+            component: Component name (e.g., "app")
+            part: Part to increment (major, minor, patch, build)
         """
         current_version = self.get_version(component)
         major, minor, patch, build = self._parse_version(current_version)
@@ -138,33 +138,33 @@ class VersionManager:
         elif part == "build":
             build += 1
         else:
-            raise ValueError(f"无效的版本部分: {part}，应为 major/minor/patch/build")
+            raise ValueError(f"Invalid version part: {part}, should be major/minor/patch/build")
         
         new_version = self._format_version(major, minor, patch, build)
         self.set_version(component, new_version)
         return new_version
     
     def sync_to_pubspec(self, component: str = "app"):
-        """同步版本号到 pubspec.yaml"""
+        """Sync version number to pubspec.yaml"""
         version = self.get_version(component)
         pubspec_file = self.project_root / "pubspec.yaml"
         
         if not pubspec_file.exists():
-            raise FileNotFoundError(f"pubspec.yaml 不存在: {pubspec_file}")
+            raise FileNotFoundError(f"pubspec.yaml not found: {pubspec_file}")
         
-        # 读取 pubspec.yaml
+        # Read pubspec.yaml
         with open(pubspec_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 替换版本号（格式: version: x.y.z+build）
+        # Replace version (format: version: x.y.z+build)
         pattern = r'^version:\s*[\d.]+(?:\+\d+)?'
         replacement = f'version: {version}'
         new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
         
         if new_content == content:
-            # 如果没有匹配到，尝试添加
+            # If not matched, try to add
             if 'version:' not in content:
-                # 在 name 行后添加 version
+                # Add version after name line
                 content = re.sub(
                     r'^(name:.*)$',
                     f'\\1\nversion: {version}',
@@ -173,22 +173,22 @@ class VersionManager:
                 )
                 new_content = content
             else:
-                print(f"警告: 无法找到版本号行，请手动更新 pubspec.yaml")
+                print(f"Warning: Cannot find version line, please update pubspec.yaml manually")
                 return False
         
-        # 写入文件
+        # Write file
         with open(pubspec_file, 'w', encoding='utf-8') as f:
             f.write(new_content)
         
-        print(f"已同步版本号到 pubspec.yaml: {version}")
+        print(f"Synced version to pubspec.yaml: {version}")
         return True
     
     def extract_version(self, component: str = "app", output_format: str = "text") -> str:
-        """提取版本号（用于 CI/CD）
+        """Extract version number (for CI/CD)
         
         Args:
-            component: 组件名称
-            output_format: 输出格式（text, json）
+            component: Component name
+            output_format: Output format (text, json)
         """
         version = self.get_version(component)
         major, minor, patch, build = self._parse_version(version)
@@ -209,33 +209,33 @@ class VersionManager:
 
 
 def main():
-    """主函数"""
-    parser = argparse.ArgumentParser(description="版本号管理工具")
-    subparsers = parser.add_subparsers(dest='command', help='命令')
+    """Main function"""
+    parser = argparse.ArgumentParser(description="Version Management Tool")
+    subparsers = parser.add_subparsers(dest='command', help='Command')
     
-    # get 命令
-    parser_get = subparsers.add_parser('get', help='获取版本号')
-    parser_get.add_argument('component', nargs='?', default='app', help='组件名称')
-    parser_get.add_argument('--json', action='store_true', help='JSON 格式输出')
+    # get command
+    parser_get = subparsers.add_parser('get', help='Get version number')
+    parser_get.add_argument('component', nargs='?', default='app', help='Component name')
+    parser_get.add_argument('--json', action='store_true', help='JSON format output')
     
-    # set 命令
-    parser_set = subparsers.add_parser('set', help='设置版本号')
-    parser_set.add_argument('component', help='组件名称')
-    parser_set.add_argument('version', help='版本号（格式: x.y.z+build）')
+    # set command
+    parser_set = subparsers.add_parser('set', help='Set version number')
+    parser_set.add_argument('component', help='Component name')
+    parser_set.add_argument('version', help='Version number (format: x.y.z+build)')
     
-    # bump 命令
-    parser_bump = subparsers.add_parser('bump', help='递增版本号')
-    parser_bump.add_argument('component', help='组件名称')
-    parser_bump.add_argument('part', choices=['major', 'minor', 'patch', 'build'], help='要递增的部分')
+    # bump command
+    parser_bump = subparsers.add_parser('bump', help='Increment version number')
+    parser_bump.add_argument('component', help='Component name')
+    parser_bump.add_argument('part', choices=['major', 'minor', 'patch', 'build'], help='Part to increment')
     
-    # sync 命令
-    parser_sync = subparsers.add_parser('sync', help='同步版本号到项目配置文件')
-    parser_sync.add_argument('component', nargs='?', default='app', help='组件名称')
+    # sync command
+    parser_sync = subparsers.add_parser('sync', help='Sync version to project config file')
+    parser_sync.add_argument('component', nargs='?', default='app', help='Component name')
     
-    # extract 命令（用于 CI/CD）
-    parser_extract = subparsers.add_parser('extract', help='提取版本号（用于 CI/CD）')
-    parser_extract.add_argument('component', nargs='?', default='app', help='组件名称')
-    parser_extract.add_argument('--json', action='store_true', help='JSON 格式输出')
+    # extract command (for CI/CD)
+    parser_extract = subparsers.add_parser('extract', help='Extract version number (for CI/CD)')
+    parser_extract.add_argument('component', nargs='?', default='app', help='Component name')
+    parser_extract.add_argument('--json', action='store_true', help='JSON format output')
     
     args = parser.parse_args()
     
@@ -256,7 +256,7 @@ def main():
         
         elif args.command == 'bump':
             new_version = manager.bump_version(args.component, args.part)
-            print(f"版本号已递增为: {new_version}")
+            print(f"Version incremented to: {new_version}")
         
         elif args.command == 'sync':
             manager.sync_to_pubspec(args.component)
@@ -267,7 +267,7 @@ def main():
             print(result)
     
     except Exception as e:
-        print(f"错误: {e}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
