@@ -84,6 +84,14 @@ echo -e "\n清理之前的构建..."
 flutter clean > /dev/null 2>&1 || true
 echo -e "${GREEN}✓ 清理完成${NC}"
 
+# 同步版本号
+echo -e "\n同步版本号..."
+if [ -f "$SCRIPT_DIR/version.sh" ]; then
+    "$SCRIPT_DIR/version.sh" sync app || echo -e "${YELLOW}警告: 版本号同步失败，继续构建${NC}"
+else
+    echo -e "${YELLOW}警告: 版本管理脚本不存在，跳过版本号同步${NC}"
+fi
+
 # 获取依赖
 echo -e "\n获取依赖..."
 flutter pub get

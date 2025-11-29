@@ -1,0 +1,141 @@
+name: Build All Platforms
+
+on:
+  push:
+    tags:
+      - 'build*'  # 当推送 build* 标签时触发
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      version:
+        description: '版本号（如 1.0.7）'
+        required: false
+        type: string
+
+env:
+  Flutter CLI_VERSION: '3.24.0'
+
+jobs:
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.Flutter CLI_VERSION }}
+          channel: 'stable'
+      
+      - name: Extract version
+        id: version
+        run: |
+          python3 scripts/lib/version_manager.py extract app --json > version.json
+          cat version.json
+          VERSION=$(python3 scripts/lib/version_manager.py extract app)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Install PyYAML
+        run: pip3 install pyyaml
+      
+      - name: Sync version to pubspec.yaml
+        run: |
+          python3 scripts/lib/version_manager.py sync app
+      
+      - name: Get dependencies
+        run: flutter pub get
+      
+      - name: Build macOS
+        run: flutter build macos --release
+      
+      - name: Package macOS
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip SvnMergeTool.app
+      
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: build/macos/Build/Products/Release/SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.Flutter CLI_VERSION }}
+          channel: 'stable'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Extract version
+        id: version
+        run: |
+          python scripts/lib/version_manager.py extract app --json > version.json
+          type version.json
+          for /f "delims=" %%i in ('python scripts/lib/version_manager.py extract app') do set VERSION=%%i
+          echo version=%VERSION% >> %GITHUB_OUTPUT%
+      
+      - name: Sync version to pubspec.yaml
+        run: |
+          python scripts/lib/version_manager.py sync app
+      
+      - name: Get dependencies
+        run: flutter pub get
+      
+      - name: Build Windows
+        run: flutter build windows --release
+      
+      - name: Package Windows
+        run: |
+          cd build/windows/x64/runner/Release
+          powershell Compress-Archive -Path * -DestinationPath ../../../../SvnMergeTool_windows_%VERSION%.zip -Force
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: build/windows/x64/runner/Release/SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip
+
+  increment-build-number:
+    name: Increment Build Number
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Increment build number
+        run: |
+          python3 scripts/lib/version_manager.py bump app build
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION.yaml
+          git commit -m "Build: Increment build number"
+          git push origin main
+

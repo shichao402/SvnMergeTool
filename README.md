@@ -8,6 +8,7 @@
 
 - [配置说明](Documents/configuration.md) - 配置文件使用和部署说明
 - [脚本说明](Documents/scripts.md) - 部署和日志收集脚本使用说明
+- [版本管理](Documents/development/version-management.md) - 版本号管理和 CI/CD 说明
 
 ## 快速开始
 

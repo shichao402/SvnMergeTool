@@ -49,42 +49,42 @@
       {
         "name": "01-logging.mdc",
         "path": ".cursor/rules/01-logging.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "02-scripts.mdc",
         "path": ".cursor/rules/02-scripts.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "03-debugging.mdc",
         "path": ".cursor/rules/03-debugging.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "04-development.mdc",
         "path": ".cursor/rules/04-development.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "05-security.mdc",
         "path": ".cursor/rules/05-security.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "06-version-management.mdc",
         "path": ".cursor/rules/06-version-management.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "07-github-actions.mdc",
         "path": ".cursor/rules/07-github-actions.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "08-documentation.mdc",
         "path": ".cursor/rules/08-documentation.mdc",
-        "type": "unknown"
+        "type": "common"
       },
       {
         "name": "10-dart.mdc",

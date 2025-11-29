@@ -1,0 +1,163 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.0.7）'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install PyYAML
+        run: pip install pyyaml
+      
+      - name: Extract version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(python3 scripts/lib/version_manager.py extract app)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_number=${VERSION%%+*}" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+      
+      - name: Find build artifacts
+        id: artifacts
+        run: |
+          # 查找对应的构建标签
+          BUILD_TAG="build${VERSION_NUMBER}"
+          echo "build_tag=$BUILD_TAG" >> $GITHUB_OUTPUT
+      
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: artifacts/macos
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.run_id }}
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/windows
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.run_id }}
+      
+      - name: Calculate file hashes
+        id: hashes
+        run: |
+          MACOS_HASH=$(sha256sum artifacts/macos/*.zip | cut -d' ' -f1)
+          WINDOWS_HASH=$(sha256sum artifacts/windows/*.zip | cut -d' ' -f1)
+          echo "macos_hash=$MACOS_HASH" >> $GITHUB_OUTPUT
+          echo "windows_hash=$WINDOWS_HASH" >> $GITHUB_OUTPUT
+      
+      - name: Generate update config
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          version = os.environ['VERSION']
+          version_number = version.split('+')[0]
+          owner = os.environ.get('GITHUB_REPOSITORY', '').split('/')[0]
+          repo = os.environ.get('GITHUB_REPOSITORY', '').split('/')[1]
+          
+          config = {
+              "app": {
+                  "version": version,
+                  "versionNumber": version_number,
+                  "platforms": {
+                      "macos": {
+                          "version": version,
+                          "versionNumber": version_number,
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
+                          "fileType": "zip",
+                          "platform": "macos",
+                          "fileHash": os.environ.get('MACOS_HASH', '')
+                      },
+                      "windows": {
+                          "version": version,
+                          "versionNumber": version_number,
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
+                          "fileType": "zip",
+                          "platform": "windows",
+                          "fileHash": os.environ.get('WINDOWS_HASH', '')
+                      }
+                  }
+              },
+              "updateCheckUrl": f"https://github.com/{owner}/{repo}/releases/download/UpdateConfig/update_config_github.json",
+              "lastUpdated": os.environ.get('GITHUB_SHA', '')
+          }
+          
+          with open('update_config_github.json', 'w') as f:
+              json.dump(config, f, indent=2, ensure_ascii=False)
+          EOF
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_NUMBER: ${{ steps.version.outputs.version_number }}
+          MACOS_HASH: ${{ steps.hashes.outputs.macos_hash }}
+          WINDOWS_HASH: ${{ steps.hashes.outputs.windows_hash }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version_number }}
+          name: Release v${{ steps.version.outputs.version_number }}
+          body: |
+            ## SvnMergeTool v${{ steps.version.outputs.version_number }}
+            
+            ### 下载
+            
+            - [macOS](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip)
+            - [Windows](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip)
+            
+            ### 更新配置
+            
+            更新配置文件已自动生成并推送到 UpdateConfig Release。
+          files: |
+            artifacts/macos/*.zip
+            artifacts/windows/*.zip
+      
+      - name: Create/Update UpdateConfig Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: UpdateConfig
+          name: Update Configuration
+          body: |
+            ## 更新配置文件
+            
+            此 Release 包含应用的更新配置文件。
+            
+            **注意：** 此 Release 由 CI/CD 自动维护，请勿手动修改。
+          files: update_config_github.json
+          draft: false
+          prerelease: false
+

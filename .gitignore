@@ -124,6 +124,9 @@ app.*.map.json
 .env
 .env.local
 
+# 临时文档目录（过程性文档）
+Documents/temp/
+
 # macOS
 .DS_Store
 .AppleDouble

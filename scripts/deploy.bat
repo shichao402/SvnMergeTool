@@ -59,6 +59,18 @@ echo Cleaning previous build...
 flutter clean >nul 2>&1
 echo [OK] Clean completed
 
+REM Sync version number
+echo.
+echo Syncing version number...
+if exist "%SCRIPT_DIR%version.bat" (
+    call "%SCRIPT_DIR%version.bat" sync app
+    if %errorlevel% neq 0 (
+        echo [WARNING] Version sync failed, continuing
+    )
+) else (
+    echo [WARNING] Version management script not found, skipping version sync
+)
+
 REM Get dependencies
 echo.
 echo Getting dependencies...
