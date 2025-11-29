@@ -36,3 +36,4 @@ Write-Host ""
 Write-Host "act installed successfully!" -ForegroundColor Green
 act --version
 
+

@@ -44,3 +44,4 @@ echo ""
 echo "act installed successfully!"
 act --version
 
+

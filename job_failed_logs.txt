@@ -1,0 +1,7 @@
+﻿gh : failed to get job: HTTP 404: Not Found (https://api.github.com/repos/shichao402/SvnMergeTool/actions/jobs/--log-failed)
+所在位置 行:1 字符: 185
++ ... D: $jobId"; gh run view 19785821359 --job $jobId --log-failed 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (failed to get j...s/--log-failed):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -78,3 +78,5 @@ final buildNumber = await versionService.getBuildNumber();     // 13
 - **修订号（Patch）** - 向后兼容的 bug 修复、小改进
 - **构建号（Build）** - 每次构建递增，用于区分同一版本的多次构建
 
+
+
