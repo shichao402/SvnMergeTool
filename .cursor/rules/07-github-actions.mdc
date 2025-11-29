@@ -9,6 +9,7 @@ alwaysApply: true
 2. **构建和发布必须分离（构建标签 vs 发布标签）**
 3. **构建号必须自动递增**
 4. **更新配置文件必须自动生成和推送**
+5. **调试 GitHub Actions 必须使用预置脚本，禁止临时组装命令**
 
 ## 工作流程设计
 
@@ -254,6 +255,45 @@ def calculate_file_hash(file_path: str) -> str:
 - `scripts/create_release.sh` - 创建发布 Release
 - `scripts/generate_update_config.py` - 生成更新配置文件
 
+## 调试规则（强制）
+
+### 必须使用预置脚本
+
+**原则：** 调试 GitHub Actions 时必须使用项目中已有的调试脚本，禁止临时组装命令
+
+**可用脚本：**
+- `scripts/debug_workflow.sh` - 综合调试工具，查看运行状态和失败日志
+- `scripts/view_failed_logs.sh` - 查看失败步骤的日志
+- `scripts/view_job_logs.sh` - 查看特定 job 的日志
+- `scripts/check_workflow_status.sh` - 检查 workflow 运行状态
+
+**使用方式：**
+```bash
+# 调试最新的运行（自动获取最新运行）
+bash scripts/debug_workflow.sh
+
+# 调试指定的运行
+bash scripts/debug_workflow.sh <run-id>
+
+# 查看失败日志
+bash scripts/view_failed_logs.sh [run-id] [workflow-name]
+
+# 查看特定 job 的日志
+bash scripts/view_job_logs.sh <run-id> <job-name> [--failed-only]
+```
+
+**禁止行为：**
+- ❌ 临时组装 `gh run view` 命令进行调试
+- ❌ 使用复杂的 PowerShell 命令组合
+- ❌ 手动拼接 JSON 查询命令
+- ❌ 不使用脚本而直接执行 GitHub CLI 命令
+
+**必须遵守：**
+- ✅ 调试前先使用 `scripts/debug_workflow.sh` 获取完整信息
+- ✅ 查看失败日志必须使用 `scripts/view_failed_logs.sh`
+- ✅ 需要查看特定 job 时使用 `scripts/view_job_logs.sh`
+- ✅ 所有调试操作都应该通过脚本完成
+
 ## 禁止行为
 
 - ❌ 手动创建 GitHub Release
@@ -262,6 +302,7 @@ def calculate_file_hash(file_path: str) -> str:
 - ❌ 在构建产物文件名中使用 `+` 号（应使用 `build`）
 - ❌ 不计算文件 hash
 - ❌ 不自动递增构建号
+- ❌ 调试时不使用预置脚本，临时组装命令
 
 ## 必须遵守
 
