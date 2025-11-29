@@ -12,7 +12,7 @@ on:
         type: string
 
 env:
-  FLUTTER_VERSION: '3.27.3'
+  FLUTTER_VERSION: '3.24.0'  # Flutter 3.24.0+ includes Dart 3.8.0+
 
 jobs:
   build-macos:
