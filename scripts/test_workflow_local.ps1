@@ -26,10 +26,16 @@ if (-not $actInstalled) {
 
 # Check if Docker is running
 try {
-    docker ps | Out-Null
+    docker ps 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker not running"
+    }
 } catch {
     Write-Host "Error: Docker is not running or not installed" -ForegroundColor Red
-    Write-Host "Please start Docker Desktop and try again" -ForegroundColor Yellow
+    Write-Host "Please install and start Docker Desktop:" -ForegroundColor Yellow
+    Write-Host "  1. Download from: https://www.docker.com/products/docker-desktop" -ForegroundColor White
+    Write-Host "  2. Install and start Docker Desktop" -ForegroundColor White
+    Write-Host "  3. Wait for Docker to be ready, then try again" -ForegroundColor White
     exit 1
 }
 

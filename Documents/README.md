@@ -26,10 +26,18 @@
 - 版本服务 API
 - CI/CD 集成说明
 
+### [本地调试 GitHub Actions](development/local-debugging.md)
+
+- 使用 act 工具本地调试工作流
+- 安装和配置说明
+- 使用方法和技巧
+- 故障排除
+
 ## 快速导航
 
 - **配置问题**：查看 [配置说明](configuration.md)
 - **脚本使用**：查看 [脚本说明](scripts.md)
 - **版本管理**：查看 [版本管理说明](development/version-management.md)
+- **本地调试**：查看 [本地调试说明](development/local-debugging.md)
 - **项目概览**：查看根目录 [README.md](../README.md)
 
