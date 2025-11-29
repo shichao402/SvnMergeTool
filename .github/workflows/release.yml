@@ -44,12 +44,56 @@ jobs:
           echo "version_number=${VERSION%%+*}" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
       
-      - name: Find build artifacts
-        id: artifacts
-        run: |
-          # 查找对应的构建标签
-          BUILD_TAG="build${VERSION_NUMBER}"
-          echo "build_tag=$BUILD_TAG" >> $GITHUB_OUTPUT
+      - name: Find build workflow run
+        id: find-build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              status: 'success',
+              per_page: 10
+            });
+            
+            const versionNumber = '${{ steps.version.outputs.version_number }}';
+            const buildTag = `build${versionNumber}`;
+            
+            // 查找包含对应构建标签的 workflow run
+            let targetRun = null;
+            for (const run of runs.workflow_runs) {
+              if (run.head_branch === 'main' || run.head_branch === 'master') {
+                // 检查 commit message 或 tag
+                const commit = await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: run.head_sha
+                });
+                
+                // 尝试从最近的运行中获取
+                if (!targetRun) {
+                  targetRun = run;
+                  break;
+                }
+              }
+            }
+            
+            if (targetRun) {
+              core.setOutput('run_id', targetRun.id);
+              core.setOutput('run_number', targetRun.run_number);
+              console.log(`找到构建运行: #${targetRun.run_number} (ID: ${targetRun.id})`);
+            } else if (runs.workflow_runs.length > 0) {
+              // 如果没有找到 main 分支的运行，使用最新的
+              targetRun = runs.workflow_runs[0];
+              core.setOutput('run_id', targetRun.id);
+              core.setOutput('run_number', targetRun.run_number);
+              console.log(`使用最新的构建运行: #${targetRun.run_number} (ID: ${targetRun.id})`);
+            } else {
+              core.setOutput('run_id', '');
+              core.setOutput('run_number', '');
+              console.log('未找到构建运行');
+            }
       
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
@@ -57,7 +101,8 @@ jobs:
           name: macos-build
           path: artifacts/macos
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ steps.find-build.outputs.run_id }}
+          if-no-files-found: warn
       
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -65,13 +110,27 @@ jobs:
           name: windows-build
           path: artifacts/windows
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ steps.find-build.outputs.run_id }}
+          if-no-files-found: warn
       
       - name: Calculate file hashes
         id: hashes
         run: |
-          MACOS_HASH=$(sha256sum artifacts/macos/*.zip | cut -d' ' -f1)
-          WINDOWS_HASH=$(sha256sum artifacts/windows/*.zip | cut -d' ' -f1)
+          MACOS_HASH=""
+          WINDOWS_HASH=""
+          
+          # 查找 macOS 文件
+          MACOS_FILE=$(find artifacts/macos -name "*.zip" -type f | head -1)
+          if [ -n "$MACOS_FILE" ] && [ -f "$MACOS_FILE" ]; then
+            MACOS_HASH=$(sha256sum "$MACOS_FILE" | cut -d' ' -f1)
+          fi
+          
+          # 查找 Windows 文件
+          WINDOWS_FILE=$(find artifacts/windows -name "*.zip" -type f | head -1)
+          if [ -n "$WINDOWS_FILE" ] && [ -f "$WINDOWS_FILE" ]; then
+            WINDOWS_HASH=$(sha256sum "$WINDOWS_FILE" | cut -d' ' -f1)
+          fi
+          
           echo "macos_hash=$MACOS_HASH" >> $GITHUB_OUTPUT
           echo "windows_hash=$WINDOWS_HASH" >> $GITHUB_OUTPUT
       
@@ -145,6 +204,7 @@ jobs:
           files: |
             artifacts/macos/*.zip
             artifacts/windows/*.zip
+          fail_on_unmatched_files: false
       
       - name: Create/Update UpdateConfig Release
         uses: softprops/action-gh-release@v1

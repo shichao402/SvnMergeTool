@@ -28,6 +28,9 @@ jobs:
           flutter-version: ${{ env.Flutter CLI_VERSION }}
           channel: 'stable'
       
+      - name: Install PyYAML
+        run: pip3 install pyyaml
+      
       - name: Extract version
         id: version
         run: |
@@ -35,9 +38,6 @@ jobs:
           cat version.json
           VERSION=$(python3 scripts/lib/version_manager.py extract app)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Install PyYAML
-        run: pip3 install pyyaml
       
       - name: Sync version to pubspec.yaml
         run: |
@@ -52,13 +52,17 @@ jobs:
       - name: Package macOS
         run: |
           cd build/macos/Build/Products/Release
-          zip -r ../../../../SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip SvnMergeTool.app
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP_NAME="SvnMergeTool_macos_${VERSION}.zip"
+          zip -r "../../../../${ZIP_NAME}" SvnMergeTool.app
+          echo "Created: ${ZIP_NAME}"
       
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: build/macos/Build/Products/Release/SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip
+          retention-days: 30
 
   build-windows:
     name: Build Windows
@@ -83,11 +87,12 @@ jobs:
       
       - name: Extract version
         id: version
+        shell: pwsh
         run: |
           python scripts/lib/version_manager.py extract app --json > version.json
-          type version.json
-          for /f "delims=" %%i in ('python scripts/lib/version_manager.py extract app') do set VERSION=%%i
-          echo version=%VERSION% >> %GITHUB_OUTPUT%
+          Get-Content version.json
+          $VERSION = python scripts/lib/version_manager.py extract app
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
       
       - name: Sync version to pubspec.yaml
         run: |
@@ -102,13 +107,17 @@ jobs:
       - name: Package Windows
         run: |
           cd build/windows/x64/runner/Release
-          powershell Compress-Archive -Path * -DestinationPath ../../../../SvnMergeTool_windows_%VERSION%.zip -Force
+          $version = "${{ steps.version.outputs.version }}"
+          $zipName = "SvnMergeTool_windows_$version.zip"
+          Compress-Archive -Path * -DestinationPath "../../../../$zipName" -Force
+          Write-Host "Created: $zipName"
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: build/windows/x64/runner/Release/SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip
+          retention-days: 30
 
   increment-build-number:
     name: Increment Build Number
@@ -136,6 +145,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION.yaml
-          git commit -m "Build: Increment build number"
-          git push origin main
+          git commit -m "Build: Increment build number" || exit 0
+          git push origin HEAD:main || exit 0
 
