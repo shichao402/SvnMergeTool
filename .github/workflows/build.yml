@@ -12,7 +12,7 @@ on:
         type: string
 
 env:
-  Flutter CLI_VERSION: '3.24.0'
+  FLUTTER_VERSION: '3.24.0'
 
 jobs:
   build-macos:
@@ -25,7 +25,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.Flutter CLI_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       
       - name: Install PyYAML
@@ -74,7 +74,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.Flutter CLI_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       
       - name: Setup Python
