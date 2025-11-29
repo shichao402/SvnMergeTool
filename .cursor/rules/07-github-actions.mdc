@@ -255,6 +255,45 @@ def calculate_file_hash(file_path: str) -> str:
 - `scripts/create_release.sh` - 创建发布 Release
 - `scripts/generate_update_config.py` - 生成更新配置文件
 
+## 本地调试（推荐）
+
+### 使用 act 工具进行本地调试
+
+**原则：** 优先使用 `nektos/act` 工具在本地调试 GitHub Actions，避免频繁推送代码
+
+**安装 act：**
+```powershell
+# Windows (使用 Scoop)
+scoop install act
+
+# 或使用安装脚本
+powershell -ExecutionPolicy Bypass -File scripts\setup_act.ps1
+```
+
+**使用方式：**
+```powershell
+# 测试整个 workflow
+powershell -ExecutionPolicy Bypass -File scripts\test_workflow_local.ps1 .github/workflows/build.yml
+
+# 测试特定 job
+powershell -ExecutionPolicy Bypass -File scripts\test_workflow_local.ps1 .github/workflows/build.yml "Build macOS"
+
+# 列出可用的 workflows 和 jobs
+act -l
+```
+
+**注意事项：**
+- 需要安装并运行 Docker Desktop
+- `act` 使用 Docker 容器模拟 GitHub Actions 环境
+- 某些 GitHub Actions 功能可能不完全支持（如 secrets、某些 actions）
+- macOS 和 Windows runners 需要特殊配置
+
+**优势：**
+- ✅ 快速反馈，无需等待 GitHub 运行
+- ✅ 可以快速迭代和调试
+- ✅ 不消耗 GitHub Actions 分钟数
+- ✅ 可以离线工作
+
 ## 调试规则（强制）
 
 ### 标准调试流程
