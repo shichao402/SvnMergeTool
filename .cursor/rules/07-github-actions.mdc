@@ -259,7 +259,7 @@ def calculate_file_hash(file_path: str) -> str:
 
 ### 标准调试流程
 
-**原则：** 调试 GitHub Actions 必须遵循标准流程，使用预置脚本，禁止临时组装命令
+**原则：** 调试 GitHub Actions 必须遵循标准流程，使用预置脚本，禁止临时组装命令，禁止交互式操作
 
 **标准流程：**
 1. **启动 workflow 并获取运行 ID**
@@ -276,8 +276,16 @@ def calculate_file_hash(file_path: str) -> str:
 
 4. **失败处理**
    - 如果 workflow 失败，自动获取失败日志
-   - 分析日志定位问题
-   - 修复问题后回到步骤 1 重新执行
+   - 脚本显示失败日志后自动退出
+   - AI 分析日志定位问题
+   - AI 修复问题并提交
+   - AI 重新运行脚本（回到步骤 1）
+
+**关键约束：**
+- ✅ 脚本必须完全自动化，禁止任何交互式操作（如 `Read-Host`、`input()` 等）
+- ✅ 脚本失败后必须自动退出，不等待用户输入
+- ✅ AI 负责分析日志、修复问题、重新运行脚本
+- ✅ 禁止在脚本中使用循环重试（由 AI 控制重试）
 
 ### 必须使用的脚本
 
@@ -320,6 +328,8 @@ powershell -ExecutionPolicy Bypass -File scripts\debug_workflow.ps1 -RunId $runI
 - ❌ 不使用脚本而直接执行 GitHub CLI 命令
 - ❌ 不遵循标准调试流程
 - ❌ 失败后不查看日志就继续
+- ❌ **在调试脚本中使用交互式操作**（如 `Read-Host`、`input()`、等待用户输入等）
+- ❌ **在脚本中实现自动重试循环**（应由 AI 控制重试流程）
 
 ### 必须遵守
 

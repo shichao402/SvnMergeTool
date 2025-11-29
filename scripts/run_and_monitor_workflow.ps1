@@ -116,52 +116,42 @@ function Get-FailedLogs {
     gh run view $RunId --log-failed
 }
 
-# Main loop: run -> monitor -> if failed, get logs and retry
-$attempt = 1
-$maxAttempts = 10
+# Main execution: run -> monitor -> if failed, get logs and exit
+Write-Host ""
+Write-Host "==========================================" -ForegroundColor Magenta
+Write-Host "Starting workflow execution" -ForegroundColor Magenta
+Write-Host "==========================================" -ForegroundColor Magenta
+Write-Host ""
 
-while ($attempt -le $maxAttempts) {
+# Step 1: Start workflow and get run ID
+$runId = Start-Workflow -WorkflowName $Workflow -Ver $Version
+
+# Step 2: Monitor workflow
+$success = Monitor-Workflow -RunId $runId -CheckInterval $Interval -MaxWaitTime $MaxWait
+
+# Step 3: If successful, exit
+if ($success) {
     Write-Host ""
-    Write-Host "==========================================" -ForegroundColor Magenta
-    Write-Host "Attempt $attempt of $maxAttempts" -ForegroundColor Magenta
-    Write-Host "==========================================" -ForegroundColor Magenta
-    Write-Host ""
-    
-    # Step 1: Start workflow and get run ID
-    $runId = Start-Workflow -WorkflowName $Workflow -Ver $Version
-    
-    # Step 2: Monitor workflow
-    $success = Monitor-Workflow -RunId $runId -CheckInterval $Interval -MaxWaitTime $MaxWait
-    
-    # Step 3: If successful, exit
-    if ($success) {
-        Write-Host ""
-        Write-Host "Workflow completed successfully on attempt $attempt" -ForegroundColor Green
-        exit 0
-    }
-    
-    # Step 4: If failed, get logs and analyze
-    Write-Host ""
-    Write-Host "Workflow failed on attempt $attempt" -ForegroundColor Red
-    Get-FailedLogs -RunId $runId
-    
-    Write-Host ""
-    Write-Host "==========================================" -ForegroundColor Yellow
-    Write-Host "Analysis required:" -ForegroundColor Yellow
-    Write-Host "1. Review the failed logs above" -ForegroundColor Yellow
-    Write-Host "2. Fix the issues in the code" -ForegroundColor Yellow
-    Write-Host "3. Commit and push the fixes" -ForegroundColor Yellow
-    Write-Host "4. Press Enter to retry, or Ctrl+C to exit" -ForegroundColor Yellow
-    Write-Host "==========================================" -ForegroundColor Yellow
-    Write-Host ""
-    
-    $attempt++
-    
-    if ($attempt -le $maxAttempts) {
-        Read-Host "Press Enter to continue with next attempt"
-    } else {
-        Write-Host "Maximum attempts ($maxAttempts) reached" -ForegroundColor Red
-        exit 1
-    }
+    Write-Host "Workflow completed successfully!" -ForegroundColor Green
+    exit 0
 }
+
+# Step 4: If failed, get logs and exit (no retry loop, AI will fix and rerun)
+Write-Host ""
+Write-Host "Workflow failed" -ForegroundColor Red
+Get-FailedLogs -RunId $runId
+
+Write-Host ""
+Write-Host "==========================================" -ForegroundColor Yellow
+Write-Host "Workflow failed - logs displayed above" -ForegroundColor Yellow
+Write-Host "==========================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "1. Review the failed logs above" -ForegroundColor White
+Write-Host "2. Fix the issues in the code" -ForegroundColor White
+Write-Host "3. Commit and push the fixes" -ForegroundColor White
+Write-Host "4. Run this script again to retry" -ForegroundColor White
+Write-Host ""
+
+exit 1
 
