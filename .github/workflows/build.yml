@@ -59,12 +59,13 @@ jobs:
       
       - name: Package macOS
         run: |
-          cd build/macos/Build/Products/Release
           VERSION="${{ steps.version.outputs.version }}"
           ZIP_NAME="SvnMergeTool_macos_${VERSION}.zip"
-          zip -r "../../../../${ZIP_NAME}" SvnMergeTool.app
+          PROJECT_ROOT="${{ github.workspace }}"
+          cd build/macos/Build/Products/Release
+          zip -r "${PROJECT_ROOT}/${ZIP_NAME}" SvnMergeTool.app
           echo "Created: ${ZIP_NAME}"
-          echo "ZIP path: $(pwd)/../../../../${ZIP_NAME}"
+          echo "ZIP path: ${PROJECT_ROOT}/${ZIP_NAME}"
       
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
