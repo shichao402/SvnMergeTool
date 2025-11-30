@@ -1,0 +1,25 @@
+{
+  "workflows": {
+    "build": {
+      "file": ".github/workflows/build.yml",
+      "description": "构建所有平台",
+      "default_ref": "main",
+      "default_inputs": {
+        "version": ""
+      }
+    },
+    "release": {
+      "file": ".github/workflows/release.yml",
+      "description": "创建发布",
+      "default_ref": "main",
+      "default_inputs": {
+        "version": ""
+      }
+    }
+  },
+  "repository": {
+    "owner": "",
+    "name": ""
+  }
+}
+

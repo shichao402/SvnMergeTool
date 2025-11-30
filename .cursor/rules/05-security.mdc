@@ -124,3 +124,4 @@ except Exception as e:
 except Exception as e:
     logger.logError(f'Database connection failed: {connection_string}', error=e)
 ```
+

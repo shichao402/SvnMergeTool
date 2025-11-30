@@ -56,16 +56,23 @@ echo Target platform: windows
 REM Clean previous build
 echo.
 echo Cleaning previous build...
-flutter clean >nul 2>&1
-echo [OK] Clean completed
+flutter clean 2>&1
+set CLEAN_ERROR=%errorlevel%
+if %CLEAN_ERROR% neq 0 (
+    echo [WARNING] Clean failed, continuing
+) else (
+    echo [OK] Clean completed
+)
 
 REM Sync version number
 echo.
 echo Syncing version number...
 if exist "%SCRIPT_DIR%version.bat" (
-    call "%SCRIPT_DIR%version.bat" sync app
+    call "%SCRIPT_DIR%version.bat" sync app 2>nul
     if %errorlevel% neq 0 (
         echo [WARNING] Version sync failed, continuing
+    ) else (
+        echo [OK] Version synced
     )
 ) else (
     echo [WARNING] Version management script not found, skipping version sync
@@ -74,8 +81,9 @@ if exist "%SCRIPT_DIR%version.bat" (
 REM Get dependencies
 echo.
 echo Getting dependencies...
-flutter pub get
-if %errorlevel% neq 0 (
+flutter pub get 2>&1
+set DEPS_ERROR=%errorlevel%
+if %DEPS_ERROR% neq 0 (
     echo [ERROR] Failed to get dependencies
     exit /b 1
 )
@@ -84,19 +92,22 @@ echo [OK] Dependencies retrieved
 REM Build application
 echo.
 echo Building application...
-flutter build windows --debug
-if %errorlevel% neq 0 (
+flutter build windows --debug 2>&1
+set BUILD_ERROR=%errorlevel%
+if %BUILD_ERROR% neq 0 (
     echo [ERROR] Build failed
     exit /b 1
 )
 echo [OK] Build completed
 
 REM Copy config file to build output directory
-set "CONFIG_DIR=build\windows\runner\Debug\config"
+set "CONFIG_DIR=build\windows\x64\runner\Debug\config"
 if exist "%PROJECT_DIR%\config\source_urls.json" (
     if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
     copy /Y "%PROJECT_DIR%\config\source_urls.json" "%CONFIG_DIR%\" >nul
     echo [OK] Config file copied to build output
+) else (
+    echo [WARNING] Config file not found: %PROJECT_DIR%\config\source_urls.json
 )
 
 echo.

@@ -197,3 +197,4 @@ final buildNumber = await versionService.getBuildNumber();
 - **自动同步：** 构建脚本自动同步到对应的项目配置文件
 - **代码读取：** 应用代码通过版本服务从项目配置文件读取
 - **运行时读取：** 服务端应用从打包的版本文件中读取版本兼容性配置
+
