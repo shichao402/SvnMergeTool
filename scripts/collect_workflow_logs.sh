@@ -33,3 +33,5 @@ fi
 exec "$PYTHON" "$SCRIPT_DIR/lib/workflow_manager.py" collect-logs "$@"
 
 
+
+
