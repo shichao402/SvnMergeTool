@@ -30,7 +30,7 @@ dependencies:
   json_annotation: ^4.9.0
   
   # 路径操作
-  path: ^1.9.1
+  path: ^1.9.0
   
   # 文件选择器
   file_picker: ^10.3.7
