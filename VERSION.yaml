@@ -1,5 +1,5 @@
 app:
-  version: 1.0.0+2
+  version: 1.0.0+3
 compatibility:
   min_app_version: 1.0.0
 update:
