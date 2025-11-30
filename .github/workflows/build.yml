@@ -118,14 +118,13 @@ jobs:
       
       - name: Package Windows
         run: |
-          cd build/windows/x64/runner/Release
           $version = "${{ steps.version.outputs.version }}"
           $zipName = "SvnMergeTool_windows_$version.zip"
-          $zipPath = Resolve-Path "../../../../" | Select-Object -ExpandProperty Path
-          Compress-Archive -Path * -DestinationPath "$zipPath\$zipName" -Force
+          $projectRoot = $env:GITHUB_WORKSPACE
+          cd build/windows/x64/runner/Release
+          Compress-Archive -Path * -DestinationPath "$projectRoot\$zipName" -Force
           Write-Host "Created: $zipName"
-          Write-Host "ZIP path: $zipPath\$zipName"
-          cd $zipPath
+          Write-Host "ZIP path: $projectRoot\$zipName"
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
