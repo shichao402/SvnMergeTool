@@ -53,6 +53,7 @@ test_working_copy/
 *.pkg
 *.dmg
 *.exe.manifest
+!windows/runner/runner.exe.manifest
 
 # macOS
 .DS_Store
@@ -126,6 +127,10 @@ app.*.map.json
 
 # 临时文档目录（过程性文档）
 Documents/temp/
+
+# GitHub Actions 脚本临时文件
+.github_run_id.txt
+workflow_logs/
 
 # macOS
 .DS_Store
