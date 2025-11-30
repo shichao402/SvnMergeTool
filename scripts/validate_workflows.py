@@ -33,13 +33,26 @@ def validate_workflow_structure(data):
     errors = []
     
     # 检查必需字段
+    if not data:
+        errors.append("文件为空或无法解析")
+        return errors
+    
     if 'name' not in data:
         errors.append("缺少 'name' 字段")
     
-    if 'on' not in data:
+    # 检查 'on' 字段（PyYAML 可能将 'on' 解析为布尔值 True）
+    # 在 GitHub Actions 中，'on' 是触发条件，应该是一个字典
+    has_on = False
+    if 'on' in data:
+        has_on = True
+    elif True in data and isinstance(data[True], dict):
+        # PyYAML 可能将 'on' 解析为 True（布尔值）
+        has_on = True
+    
+    if not has_on:
         errors.append("缺少 'on' 字段")
     
-    if 'jobs' not in data:
+    if 'jobs' not in data or not data.get('jobs'):
         errors.append("缺少 'jobs' 字段")
     
     # 检查 jobs
@@ -106,6 +119,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 

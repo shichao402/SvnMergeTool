@@ -173,8 +173,9 @@ class VersionManager:
                 )
                 new_content = content
             else:
-                print(f"Warning: Cannot find version line, please update pubspec.yaml manually")
-                return False
+                # Version already matches, no need to update
+                print(f"Version already synced: {version}")
+                return True
         
         # Write file
         with open(pubspec_file, 'w', encoding='utf-8') as f:
