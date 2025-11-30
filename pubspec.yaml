@@ -24,7 +24,7 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   
   # 进程执行
-  process_run: ^1.2.4
+  process_run: ^1.1.0
   
   # JSON 序列化
   json_annotation: ^4.9.0
