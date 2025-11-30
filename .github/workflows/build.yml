@@ -121,9 +121,11 @@ jobs:
           cd build/windows/x64/runner/Release
           $version = "${{ steps.version.outputs.version }}"
           $zipName = "SvnMergeTool_windows_$version.zip"
-          Compress-Archive -Path * -DestinationPath "../../../../$zipName" -Force
+          $zipPath = Resolve-Path "../../../../" | Select-Object -ExpandProperty Path
+          Compress-Archive -Path * -DestinationPath "$zipPath\$zipName" -Force
           Write-Host "Created: $zipName"
-          Write-Host "ZIP path: $PWD\..\..\..\..\$zipName"
+          Write-Host "ZIP path: $zipPath\$zipName"
+          cd $zipPath
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
