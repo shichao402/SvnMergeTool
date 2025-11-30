@@ -1,17 +1,7 @@
-# 版本号配置文件
-# 格式: YAML
-# 这是版本号的单一数据源，所有版本号操作都应基于此文件
-
 app:
-  version: "1.0.0+1"  # 版本号（格式: x.y.z+build）
-
+  version: 1.0.0+2
 compatibility:
-  # 最小版本要求（格式: x.y.z，不含构建号）
-  min_app_version: "1.0.0"
-
+  min_app_version: 1.0.0
 update:
   github:
     url: https://github.com/shichao402/SvnMergeTool/releases/download/UpdateConfig/update_config_github.json
-
-
-
