@@ -245,6 +245,74 @@ class StorageService {
     await _prefs!.setString('last_author_filter', author.trim());
   }
 
+  // ===== 预加载设置 =====
+
+  /// 获取预加载设置
+  Future<Map<String, dynamic>> getPreloadSettings() async {
+    await _ensureInit();
+    final json = _prefs!.getString('preload_settings');
+    if (json == null) {
+      return {};
+    }
+    try {
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (e) {
+      AppLogger.storage.warn('解析预加载设置失败: $e');
+      return {};
+    }
+  }
+
+  /// 保存预加载设置
+  Future<void> savePreloadSettings(Map<String, dynamic> settings) async {
+    await _ensureInit();
+    final json = jsonEncode(settings);
+    await _prefs!.setString('preload_settings', json);
+    AppLogger.storage.info('已保存预加载设置');
+  }
+
+  /// 获取预加载是否启用
+  Future<bool> getPreloadEnabled() async {
+    final settings = await getPreloadSettings();
+    return settings['enabled'] as bool? ?? true;
+  }
+
+  /// 保存预加载是否启用
+  Future<void> savePreloadEnabled(bool enabled) async {
+    final settings = await getPreloadSettings();
+    settings['enabled'] = enabled;
+    await savePreloadSettings(settings);
+  }
+
+  /// 获取预加载停止条件：到达分支点
+  Future<bool> getPreloadStopOnBranchPoint() async {
+    final settings = await getPreloadSettings();
+    return settings['stop_on_branch_point'] as bool? ?? true;
+  }
+
+  /// 获取预加载停止条件：天数限制
+  Future<int> getPreloadMaxDays() async {
+    final settings = await getPreloadSettings();
+    return settings['max_days'] as int? ?? 90;
+  }
+
+  /// 获取预加载停止条件：条数限制
+  Future<int> getPreloadMaxCount() async {
+    final settings = await getPreloadSettings();
+    return settings['max_count'] as int? ?? 1000;
+  }
+
+  /// 获取预加载停止条件：指定版本
+  Future<int> getPreloadStopRevision() async {
+    final settings = await getPreloadSettings();
+    return settings['stop_revision'] as int? ?? 0;
+  }
+
+  /// 获取预加载停止条件：指定日期
+  Future<String?> getPreloadStopDate() async {
+    final settings = await getPreloadSettings();
+    return settings['stop_date'] as String?;
+  }
+
   // ===== 私有方法 =====
 
   Future<void> _ensureInit() async {

@@ -11,6 +11,8 @@ import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
 import '../services/log_file_cache_service.dart';
 import '../services/preload_service.dart';
+import '../services/storage_service.dart' show StorageService;
+import '../widgets/preload_settings_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -47,6 +49,9 @@ class _MainScreenState extends State<MainScreen> {
   
   // 预加载状态
   PreloadProgress _preloadProgress = const PreloadProgress();
+  
+  // 当前的预加载设置（从持久化存储加载）
+  PreloadSettings _preloadSettings = const PreloadSettings();
 
   // 分割线位置（相对于父容器的比例，0.0-1.0）
   double _horizontalSplitRatio = 0.67; // 水平分割：左侧日志占 67%，右侧待合并占 33%
@@ -75,10 +80,35 @@ class _MainScreenState extends State<MainScreen> {
     }).catchError((e) {
       AppLogger.ui.error('预加载服务初始化失败', e);
     });
+    // 加载持久化的预加载设置
+    _loadPreloadSettings();
     // 延迟执行自动加载，等待 UI 构建完成
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _autoLoadLogsIfPossible();
     });
+  }
+
+  /// 从持久化存储加载预加载设置
+  Future<void> _loadPreloadSettings() async {
+    try {
+      final storageService = StorageService();
+      final settings = await storageService.getPreloadSettings();
+      if (settings.isNotEmpty && mounted) {
+        setState(() {
+          _preloadSettings = PreloadSettings(
+            enabled: settings['enabled'] as bool? ?? true,
+            stopOnBranchPoint: settings['stop_on_branch_point'] as bool? ?? true,
+            maxDays: settings['max_days'] as int? ?? 90,
+            maxCount: settings['max_count'] as int? ?? 1000,
+            stopRevision: settings['stop_revision'] as int? ?? 0,
+            stopDate: settings['stop_date'] as String?,
+          );
+        });
+        AppLogger.ui.info('已加载预加载设置: enabled=${_preloadSettings.enabled}, maxDays=${_preloadSettings.maxDays}, maxCount=${_preloadSettings.maxCount}');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('加载预加载设置失败', e, stackTrace);
+    }
   }
 
   @override
@@ -170,9 +200,9 @@ class _MainScreenState extends State<MainScreen> {
 
   /// 启动后台预加载
   void _startBackgroundPreload(String sourceUrl, String targetWc, AppState appState) {
-    // 获取预加载配置
-    final preloadSettings = appState.config?.settings.preload;
-    if (preloadSettings == null || !preloadSettings.enabled) {
+    // 使用本地保存的预加载设置（优先使用持久化的设置）
+    final preloadSettings = _preloadSettings;
+    if (!preloadSettings.enabled) {
       AppLogger.ui.info('后台预加载未启用，跳过');
       return;
     }
@@ -599,8 +629,36 @@ class _MainScreenState extends State<MainScreen> {
               foregroundColor: Colors.red,
             ),
           ),
+        // 预加载设置按钮
+        const SizedBox(width: 4),
+        IconButton(
+          onPressed: () => _showPreloadSettingsDialog(sourceUrl, targetWc),
+          icon: const Icon(Icons.settings, size: 18),
+          tooltip: '预加载设置',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        ),
       ],
     );
+  }
+
+  /// 显示预加载设置对话框
+  Future<void> _showPreloadSettingsDialog(String sourceUrl, String targetWc) async {
+    final newSettings = await PreloadSettingsDialog.show(context, _preloadSettings);
+    if (newSettings != null && mounted) {
+      setState(() {
+        _preloadSettings = newSettings;
+      });
+      AppLogger.ui.info('预加载设置已更新: enabled=${newSettings.enabled}, maxDays=${newSettings.maxDays}, maxCount=${newSettings.maxCount}');
+      
+      // 如果启用了预加载且当前没有在加载，自动开始预加载
+      if (newSettings.enabled && 
+          _preloadProgress.status != PreloadStatus.loading &&
+          sourceUrl.isNotEmpty) {
+        final appState = Provider.of<AppState>(context, listen: false);
+        _startBackgroundPreload(sourceUrl, targetWc, appState);
+      }
+    }
   }
 
   /// 加载全部日志到分支点
