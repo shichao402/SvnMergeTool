@@ -307,6 +307,7 @@ class LogFilterService {
                 limit: actualLimit,
                 stopOnCopy: stopOnCopy,
                 workingDirectory: workingDirectory,
+                loadMore: true,  // 翻页时加载更多（从缓存最旧版本继续向后读取）
               );
               
               AppLogger.storage.info('  │ ✓ 获取完成，新增 $syncCount 条');

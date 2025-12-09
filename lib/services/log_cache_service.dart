@@ -495,6 +495,63 @@ class LogCacheService {
     }
   }
 
+  /// 获取缓存中的日志总数（不带过滤条件）
+  /// 
+  /// [sourceUrl] 源 URL
+  /// 
+  /// 返回日志总数
+  Future<int> getTotalCount(String sourceUrl) async {
+    await _ensureInit();
+
+    try {
+      final urlHash = _getSourceUrlHash(sourceUrl);
+      final result = _database!.select(
+        'SELECT COUNT(*) as count FROM log_entries WHERE source_url_hash = ?',
+        [urlHash],
+      );
+      return result.first.columnAt(0) as int;
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取日志总数失败', e, stackTrace);
+      return 0;
+    }
+  }
+
+  /// 获取缓存中最早的日期
+  /// 
+  /// [sourceUrl] 源 URL
+  /// 
+  /// 返回最早的日期，如果没有缓存则返回 null
+  Future<DateTime?> getEarliestDate(String sourceUrl) async {
+    await _ensureInit();
+
+    try {
+      final urlHash = _getSourceUrlHash(sourceUrl);
+      final result = _database!.select(
+        'SELECT MIN(date) as min_date FROM log_entries WHERE source_url_hash = ?',
+        [urlHash],
+      );
+
+      if (result.isEmpty) {
+        return null;
+      }
+
+      final minDateValue = result.first.columnAt(0);
+      if (minDateValue == null) {
+        return null;
+      }
+
+      // 解析日期字符串
+      try {
+        return DateTime.parse(minDateValue as String);
+      } catch (_) {
+        return null;
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最早日期失败', e, stackTrace);
+      return null;
+    }
+  }
+
   /// 清空所有缓存
   Future<void> clearAllCache() async {
     await _ensureInit();

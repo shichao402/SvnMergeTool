@@ -7,6 +7,7 @@
 /// - 开发/生产环境区分
 /// - 自动日志清理（保留最近10个文件，单个<10MB，总大小<50MB）
 
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -46,6 +47,12 @@ class LoggerService {
   /// 是否已初始化
   bool _initialized = false;
 
+  /// 日志写入队列（确保顺序写入）
+  final List<String> _writeQueue = [];
+  
+  /// 是否正在写入
+  bool _isWriting = false;
+
   /// 最大日志文件数量
   static const int maxLogFiles = 10;
 
@@ -60,24 +67,43 @@ class LoggerService {
     _tag = tag;
   }
 
+  /// 获取程序所在目录
+  Directory _getExecutableDirectory() {
+    // Platform.resolvedExecutable 返回当前运行的可执行文件的完整路径
+    // 例如：D:\workspace\GitHub\SvnMergeTool\build\windows\x64\runner\Debug\SvnMergeTool.exe
+    final exePath = Platform.resolvedExecutable;
+    final exeDir = Directory(path.dirname(exePath));
+    return exeDir;
+  }
+
   /// 初始化日志文件
   Future<void> _initLogFile() async {
     if (_initialized) return;
 
     try {
-      // 获取项目根目录或应用支持目录
+      // 获取程序所在目录或应用支持目录
       Directory logDir;
       
-      // 策略1：尝试项目根目录（开发环境）
-      final currentDir = Directory.current;
-      final projectLogDir = Directory(path.join(currentDir.path, 'logs'));
+      // 获取程序所在目录
+      final exeDir = _getExecutableDirectory();
+      final exeLogDir = Directory(path.join(exeDir.path, 'logs'));
       
-      if (await projectLogDir.exists() || 
-          await File(path.join(currentDir.path, 'pubspec.yaml')).exists()) {
-        // 项目根目录存在，使用项目根目录下的 logs 目录
-        logDir = projectLogDir;
+      // 策略1：使用程序所在目录下的 logs 目录（打包环境）
+      // 策略2：如果程序在 flutter 开发环境中运行，使用项目根目录
+      // 策略3：使用应用支持目录（fallback）
+      
+      // 检查是否在开发环境（flutter run）
+      final currentDir = Directory.current;
+      final isDevEnvironment = await File(path.join(currentDir.path, 'pubspec.yaml')).exists();
+      
+      if (isDevEnvironment) {
+        // 开发环境：使用项目根目录下的 logs 目录
+        logDir = Directory(path.join(currentDir.path, 'logs'));
+      } else if (await exeDir.exists()) {
+        // 打包环境：使用程序所在目录下的 logs 目录
+        logDir = exeLogDir;
       } else {
-        // 策略2：使用应用支持目录（打包环境）
+        // Fallback：使用应用支持目录
         final appDir = await getApplicationSupportDirectory();
         logDir = Directory(path.join(appDir.path, 'SvnMergeTool', 'logs'));
       }
@@ -166,26 +192,61 @@ class LoggerService {
     }
   }
 
-  /// 写入日志到文件
-  Future<void> _writeToFile(String message) async {
-    if (!_initialized) {
-      await _initLogFile();
-    }
+  /// 写入日志到文件（使用队列确保顺序写入）
+  void _enqueueWrite(String message) {
+    _writeQueue.add(message);
+    _processWriteQueue();
+  }
 
-    if (_logFileSink != null) {
-      try {
-        _logFileSink!.writeln(message);
+  /// 处理写入队列
+  Future<void> _processWriteQueue() async {
+    if (_isWriting || _writeQueue.isEmpty) return;
+    
+    _isWriting = true;
+    
+    try {
+      if (!_initialized) {
+        await _initLogFile();
+      }
+
+      while (_writeQueue.isNotEmpty && _logFileSink != null) {
+        final message = _writeQueue.removeAt(0);
+        try {
+          _logFileSink!.writeln(message);
+        } catch (e) {
+          // 写入失败，不影响后续写入
+          debugPrint('写入日志失败: $e');
+        }
+      }
+      
+      // 批量 flush
+      if (_logFileSink != null) {
         await _logFileSink!.flush();
-      } catch (e, stackTrace) {
-        // 如果写入失败，不影响控制台输出
-        // 注意：这里使用 debugPrint 是必要的，因为日志服务本身需要输出错误
-        debugPrint('写入日志文件失败: $e\n$stackTrace');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('处理日志队列失败: $e\n$stackTrace');
+    } finally {
+      _isWriting = false;
+      
+      // 如果队列中还有新的日志，继续处理
+      if (_writeQueue.isNotEmpty) {
+        // 使用 scheduleMicrotask 避免递归调用栈溢出
+        scheduleMicrotask(() => _processWriteQueue());
       }
     }
   }
 
+  /// 写入日志到文件（兼容旧接口）
+  Future<void> _writeToFile(String message) async {
+    _enqueueWrite(message);
+  }
+
   /// 关闭日志文件
   Future<void> close() async {
+    // 等待队列处理完成
+    while (_writeQueue.isNotEmpty || _isWriting) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
     await _logFileSink?.flush();
     await _logFileSink?.close();
     _logFileSink = null;
@@ -306,6 +367,7 @@ class AppLogger {
   static final merge = logger.tagged('MERGE');
   static final ui = logger.tagged('UI');
   static final app = logger.tagged('APP');
+  static final preload = logger.tagged('PRELOAD');
 }
 
 

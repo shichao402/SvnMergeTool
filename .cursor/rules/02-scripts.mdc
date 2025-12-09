@@ -41,16 +41,77 @@ alwaysApply: true
 
 ### 3. 跨平台支持（强制）
 
-- **原则：** 所有脚本必须支持跨平台，提供各平台的入口脚本
+- **原则：** 所有脚本必须支持跨平台，核心逻辑必须使用跨平台语言实现
 - **目标：** 确保脚本在 Windows、macOS 和 Linux 上都能正常工作
 - **实现方式：**
-  - **推荐：** 使用跨平台语言（如 Python）实现核心逻辑，各平台提供代理入口脚本
-  - **备选：** 使用平台特定的脚本语言，但必须提供所有平台的版本
+  - **必须：** 使用跨平台语言（如 Python）实现核心逻辑
+  - **入口脚本：** 各平台提供简单的代理入口脚本（.bat/.sh），仅用于调用核心 Python 脚本
+  - **禁止：** 在入口脚本中编写业务逻辑，所有业务逻辑必须在 Python 核心脚本中实现
 
-#### 平台代理入口脚本模式（推荐）
+### 4. 路径处理规则（强制）
 
-**核心实现：** 使用 Python 等跨平台语言实现核心逻辑
-**入口脚本：** 各平台提供简单的代理脚本调用核心实现
+- **原则：** 必须使用标准的跨平台路径处理方法，严禁使用平台特定的路径操作
+- **目标：** 确保脚本在所有平台上都能正确处理路径
+- **实践：**
+  - **Python 脚本：** 必须使用 `pathlib.Path` 处理所有路径
+  - **路径拼接：** 使用 `Path.joinpath()` 或 `/` 操作符，严禁手动拼装 `/` 或 `\`
+  - **路径解析：** 使用 `Path.resolve()`、`Path.parent`、`Path.name` 等方法
+  - **绝对路径：** 使用 `Path.resolve()` 或 `Path.absolute()`，严禁手动处理盘符或 `/` 前缀
+  - **路径比较：** 使用 `Path.samefile()` 或转换为字符串后比较，严禁直接比较路径对象
+
+**禁止的路径操作：**
+```python
+# ❌ 错误：手动拼装路径分隔符
+path = base_dir + "\\subdir\\file.txt"  # Windows 特定
+path = base_dir + "/subdir/file.txt"     # Unix 特定
+path = base_dir + os.sep + "subdir"      # 虽然使用 os.sep，但字符串拼接不推荐
+
+# ❌ 错误：手动处理盘符
+if path.startswith("C:\\"):              # Windows 特定
+if path.startswith("/"):                 # Unix 特定
+
+# ❌ 错误：使用字符串方法处理路径
+path = path.replace("\\", "/")           # 不推荐，应使用 pathlib
+
+# ✅ 正确：使用 pathlib.Path
+from pathlib import Path
+path = Path(base_dir) / "subdir" / "file.txt"  # 跨平台
+path = Path(base_dir).joinpath("subdir", "file.txt")  # 跨平台
+```
+
+**路径处理最佳实践：**
+```python
+from pathlib import Path
+
+# 获取脚本所在目录
+script_dir = Path(__file__).parent.resolve()
+
+# 获取项目根目录
+project_root = script_dir.parent
+
+# 拼接路径
+config_file = project_root / "config" / "app.json"
+log_dir = project_root / "logs"
+
+# 检查路径是否存在
+if config_file.exists():
+    # 读取文件
+    content = config_file.read_text(encoding='utf-8')
+
+# 创建目录
+log_dir.mkdir(parents=True, exist_ok=True)
+
+# 获取路径的各个部分
+file_name = config_file.name           # "app.json"
+file_stem = config_file.stem           # "app"
+file_suffix = config_file.suffix        # ".json"
+parent_dir = config_file.parent        # Path("config")
+```
+
+#### 平台代理入口脚本模式（必须）
+
+**核心实现：** 必须使用 Python 等跨平台语言实现核心逻辑
+**入口脚本：** 各平台提供简单的代理脚本调用核心实现，入口脚本不包含业务逻辑
 
 **目录结构：**
 ```
@@ -92,9 +153,18 @@ import sys
 from pathlib import Path
 
 def main():
-    # 跨平台路径处理
+    # ✅ 正确：使用 pathlib.Path 处理路径
     script_dir = Path(__file__).parent.resolve()
     project_root = script_dir.parent
+    config_file = project_root / "config" / "app.json"  # 使用 / 操作符
+    
+    # ❌ 错误：手动拼装路径分隔符
+    # config_file = project_root + "\\config\\app.json"  # Windows 特定
+    # config_file = project_root + "/config/app.json"     # Unix 特定
+    
+    # ❌ 错误：手动处理盘符或绝对路径
+    # if path.startswith("C:\\"):  # Windows 特定
+    # if path.startswith("/"):     # Unix 特定
     
     # 跨平台命令执行
     # ... 构建逻辑 ...
@@ -104,49 +174,42 @@ if __name__ == '__main__':
     main()
 ```
 
-#### 纯脚本语言模式（备选）
+#### 入口脚本要求
 
-如果使用纯脚本语言，必须提供所有平台的版本：
+**入口脚本必须：**
+- 仅用于调用核心 Python 脚本
+- 不包含任何业务逻辑
+- 不包含平台特定的命令或操作
+- 只负责定位 Python 解释器和传递参数
 
-**Windows 批处理脚本（build.bat）：**
+**入口脚本禁止：**
+- ❌ 在入口脚本中编写业务逻辑
+- ❌ 使用平台特定的命令（如 `flutter build`、`npm install` 等）
+- ❌ 处理文件路径或执行文件操作
+- ❌ 包含条件判断或复杂逻辑
+
+**正确的入口脚本示例：**
+
 ```batch
+REM Windows 入口脚本（build.bat）- 仅调用 Python
 @echo off
-setlocal
-set SCRIPT_DIR=%~dp0
-cd /d "%SCRIPT_DIR%.."
-REM Windows 特定的构建命令
-flutter build apk
+set "SCRIPT_DIR=%~dp0"
+if exist "%SCRIPT_DIR%..\.venv\Scripts\python.exe" (
+    "%SCRIPT_DIR%..\.venv\Scripts\python.exe" "%SCRIPT_DIR%build.py" %*
+) else (
+    python "%SCRIPT_DIR%build.py" %*
+)
 ```
 
-**macOS/Linux Shell 脚本（build.sh）：**
 ```bash
 #!/bin/bash
-set -e
+# macOS/Linux 入口脚本（build.sh）- 仅调用 Python
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
-# Unix 特定的构建命令
-flutter build apk
-```
-
-#### 跨平台路径处理
-
-无论使用哪种模式，都必须正确处理跨平台路径：
-
-```python
-# Python - 跨平台路径处理
-from pathlib import Path
-script_dir = Path(__file__).parent.resolve()
-project_root = script_dir.parent
-```
-
-```bash
-# Shell - Unix 路径处理
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-```
-
-```batch
-REM Batch - Windows 路径处理
-set SCRIPT_DIR=%~dp0
+if [ -f "$SCRIPT_DIR/../.venv/bin/python" ]; then
+    exec "$SCRIPT_DIR/../.venv/bin/python" "$SCRIPT_DIR/build.py" "$@"
+else
+    exec python3 "$SCRIPT_DIR/build.py" "$@"
+fi
 ```
 
 ### 4. 脚本目录组织（强制）
@@ -323,6 +386,8 @@ else:
 - ❌ 跳过脚本直接操作
 - ❌ 不修复脚本而使用临时方案
 - ❌ **只提供单一平台的脚本**（必须支持 Windows、macOS、Linux）
+- ❌ **使用平台特定的脚本语言编写业务逻辑**（如批处理、Shell 脚本中的业务逻辑）
+- ❌ **在入口脚本中编写业务逻辑**（入口脚本只能调用 Python 核心脚本）
 - ❌ **使用平台特定的命令而不提供跨平台实现**
 - ❌ **硬编码平台特定的路径或命令**
 - ❌ **将临时脚本放在 `scripts/` 根目录**（必须放在 `scripts/temp/` 目录）
@@ -330,6 +395,10 @@ else:
 - ❌ **在脚本中使用交互操作**（如 `input()`、`Read-Host`、`read` 等）
 - ❌ **要求用户手动输入参数**（应使用命令行参数、环境变量或配置文件）
 - ❌ **使用 `pause`、`select` 等交互式命令**（除非用于调试且可跳过）
+- ❌ **手动拼装路径分隔符**（`/` 或 `\`），必须使用 `pathlib.Path`
+- ❌ **手动处理盘符或绝对路径前缀**（如 `C:\` 或 `/`），必须使用 `Path.resolve()`
+- ❌ **使用字符串拼接或替换处理路径**，必须使用 `pathlib.Path` 的方法
+- ❌ **在 Python 脚本中使用 `os.path.join()`**（虽然跨平台，但推荐使用 `pathlib.Path`）
 
 ## 必须遵守
 
@@ -342,13 +411,18 @@ else:
 - ✅ 保持脚本的健壮性和可维护性
 - ✅ AI必须主动执行脚本，不要求用户操作
 - ✅ **所有脚本必须提供跨平台支持**（Windows、macOS、Linux）
-- ✅ **必须提供各平台的入口脚本**（.bat 用于 Windows，.sh 用于 macOS/Linux）
-- ✅ **推荐使用跨平台语言（如 Python）实现核心逻辑**，各平台入口脚本调用核心实现
+- ✅ **核心逻辑必须使用跨平台语言（Python）实现**，严禁使用平台特定的脚本语言编写业务逻辑
+- ✅ **必须提供各平台的入口脚本**（.bat 用于 Windows，.sh 用于 macOS/Linux），但入口脚本仅用于调用 Python 核心脚本
+- ✅ **入口脚本必须保持简单**，只负责定位 Python 解释器和传递参数，不包含任何业务逻辑
 - ✅ **临时脚本必须放在 `scripts/temp/` 目录**，并添加到 `.gitignore`
 - ✅ **临时脚本使用完毕后应该及时清理**，如需长期使用应移动到正式脚本目录
 - ✅ **所有脚本必须完全非交互式**，使用命令行参数、环境变量或配置文件获取输入
 - ✅ **脚本必须提供默认值或清晰的错误提示**，而不是等待用户输入
 - ✅ **脚本必须可以被AI自动执行**，无需任何人工干预
+- ✅ **Python 脚本必须使用 `pathlib.Path` 处理所有路径**，严禁手动拼装路径
+- ✅ **路径拼接必须使用 `Path.joinpath()` 或 `/` 操作符**，严禁使用字符串拼接
+- ✅ **路径解析必须使用 `Path.resolve()`、`Path.parent` 等方法**，严禁手动处理
+- ✅ **所有路径操作必须通过 `pathlib.Path` 的方法完成**，确保跨平台兼容性
 
 ## 脚本维护规则（强制）
 

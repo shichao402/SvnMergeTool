@@ -1,5 +1,5 @@
 #!/bin/bash
-# SVN 自动合并工具 - 提交脚本入口 (macOS/Linux)
+# SVN Auto Merge Tool - Verify Build Script Entry (macOS/Linux)
 #
 # 入口脚本：仅调用 Python 核心脚本
 
@@ -21,4 +21,4 @@ else
 fi
 
 # 执行 Python 脚本
-exec "$PYTHON" "$SCRIPT_DIR/commit.py" "$@"
+exec "$PYTHON" "$SCRIPT_DIR/verify_build.py" "$@"

@@ -44,6 +44,90 @@ class SourceUrlConfig {
   String get displayText => '$name - $url';
 }
 
+/// 预加载停止条件类型
+enum PreloadStopType {
+  /// 到达分支点
+  branchPoint,
+  /// 天数范围
+  days,
+  /// 条数限制
+  count,
+  /// 指定版本
+  revision,
+  /// 指定日期
+  date,
+}
+
+/// 预加载设置
+@JsonSerializable()
+class PreloadSettings {
+  /// 是否启用后台静默预加载
+  @JsonKey(name: 'enabled')
+  final bool enabled;
+  
+  /// 是否在到达分支点时停止
+  @JsonKey(name: 'stop_on_branch_point')
+  final bool stopOnBranchPoint;
+  
+  /// 天数范围限制（0 表示不限制）
+  @JsonKey(name: 'max_days')
+  final int maxDays;
+  
+  /// 条数限制（0 表示不限制）
+  @JsonKey(name: 'max_count')
+  final int maxCount;
+  
+  /// 指定截止版本（0 表示不限制）
+  @JsonKey(name: 'stop_revision')
+  final int stopRevision;
+  
+  /// 指定截止日期（null 表示不限制）
+  @JsonKey(name: 'stop_date')
+  final String? stopDate;
+
+  const PreloadSettings({
+    this.enabled = true,
+    this.stopOnBranchPoint = true,
+    this.maxDays = 90,
+    this.maxCount = 1000,
+    this.stopRevision = 0,
+    this.stopDate,
+  });
+
+  factory PreloadSettings.fromJson(Map<String, dynamic> json) =>
+      _$PreloadSettingsFromJson(json);
+
+  Map<String, dynamic> toJson() => _$PreloadSettingsToJson(this);
+
+  PreloadSettings copyWith({
+    bool? enabled,
+    bool? stopOnBranchPoint,
+    int? maxDays,
+    int? maxCount,
+    int? stopRevision,
+    String? stopDate,
+  }) {
+    return PreloadSettings(
+      enabled: enabled ?? this.enabled,
+      stopOnBranchPoint: stopOnBranchPoint ?? this.stopOnBranchPoint,
+      maxDays: maxDays ?? this.maxDays,
+      maxCount: maxCount ?? this.maxCount,
+      stopRevision: stopRevision ?? this.stopRevision,
+      stopDate: stopDate ?? this.stopDate,
+    );
+  }
+  
+  /// 解析截止日期
+  DateTime? get stopDateTime {
+    if (stopDate == null || stopDate!.isEmpty) return null;
+    try {
+      return DateTime.parse(stopDate!);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// 应用设置
 @JsonSerializable()
 class AppSettings {
@@ -55,6 +139,8 @@ class AppSettings {
   final int svnLogLimit;
   @JsonKey(name: 'log_page_size')
   final int logPageSize;
+  @JsonKey(name: 'preload')
+  final PreloadSettings preload;
 
   const AppSettings({
     this.autoLoadHistory = true,
@@ -63,6 +149,7 @@ class AppSettings {
     this.autoLoadLogsOnStartup = false,
     this.svnLogLimit = 200,
     this.logPageSize = 50,
+    this.preload = const PreloadSettings(),
   });
 
   factory AppSettings.fromJson(Map<String, dynamic> json) =>
@@ -77,6 +164,7 @@ class AppSettings {
     bool? autoLoadLogsOnStartup,
     int? svnLogLimit,
     int? logPageSize,
+    PreloadSettings? preload,
   }) {
     return AppSettings(
       autoLoadHistory: autoLoadHistory ?? this.autoLoadHistory,
@@ -86,6 +174,7 @@ class AppSettings {
           autoLoadLogsOnStartup ?? this.autoLoadLogsOnStartup,
       svnLogLimit: svnLogLimit ?? this.svnLogLimit,
       logPageSize: logPageSize ?? this.logPageSize,
+      preload: preload ?? this.preload,
     );
   }
 }

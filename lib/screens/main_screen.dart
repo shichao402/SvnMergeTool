@@ -10,6 +10,7 @@ import '../services/logger_service.dart';
 import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
 import '../services/log_file_cache_service.dart';
+import '../services/preload_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -42,6 +43,10 @@ class _MainScreenState extends State<MainScreen> {
   // 注意：只保留 UI 层需要的服务（文件列表缓存）
   // 数据访问必须通过 AppState，遵循分级数据请求模式
   final _logFileCacheService = LogFileCacheService();
+  final _preloadService = PreloadService();
+  
+  // 预加载状态
+  PreloadProgress _preloadProgress = const PreloadProgress();
 
   // 分割线位置（相对于父容器的比例，0.0-1.0）
   double _horizontalSplitRatio = 0.67; // 水平分割：左侧日志占 67%，右侧待合并占 33%
@@ -57,6 +62,18 @@ class _MainScreenState extends State<MainScreen> {
     // 异步初始化服务
     _logFileCacheService.init().catchError((e) {
       AppLogger.ui.error('文件缓存服务初始化失败', e);
+    });
+    // 初始化预加载服务
+    _preloadService.init().then((_) {
+      _preloadService.onProgressChanged = (progress) {
+        if (mounted) {
+          setState(() {
+            _preloadProgress = progress;
+          });
+        }
+      };
+    }).catchError((e) {
+      AppLogger.ui.error('预加载服务初始化失败', e);
     });
     // 延迟执行自动加载，等待 UI 构建完成
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -143,9 +160,48 @@ class _MainScreenState extends State<MainScreen> {
       }
       
       AppLogger.ui.info('=== 自动加载日志完成 ===');
+      
+      // 启动后台预加载（如果配置启用）
+      _startBackgroundPreload(sourceUrl, targetWc, appState);
     } else {
       AppLogger.ui.info('源 URL 为空，跳过自动加载');
     }
+  }
+
+  /// 启动后台预加载
+  void _startBackgroundPreload(String sourceUrl, String targetWc, AppState appState) {
+    // 获取预加载配置
+    final preloadSettings = appState.config?.settings.preload;
+    if (preloadSettings == null || !preloadSettings.enabled) {
+      AppLogger.ui.info('后台预加载未启用，跳过');
+      return;
+    }
+    
+    AppLogger.ui.info('=== 启动后台预加载 ===');
+    AppLogger.ui.info('  配置:');
+    AppLogger.ui.info('    - 到达分支点停止: ${preloadSettings.stopOnBranchPoint}');
+    AppLogger.ui.info('    - 天数限制: ${preloadSettings.maxDays > 0 ? "${preloadSettings.maxDays} 天" : "无限制"}');
+    AppLogger.ui.info('    - 条数限制: ${preloadSettings.maxCount > 0 ? "${preloadSettings.maxCount} 条" : "无限制"}');
+    
+    // 异步启动预加载，不阻塞 UI
+    _preloadService.startPreload(
+      sourceUrl: sourceUrl,
+      settings: preloadSettings,
+      workingDirectory: targetWc.isNotEmpty ? targetWc : null,
+      fetchLimit: appState.config?.settings.svnLogLimit ?? 200,
+    ).then((_) {
+      // 预加载完成后刷新日志列表（如果还在当前页面）
+      if (mounted && _preloadProgress.status == PreloadStatus.completed) {
+        AppLogger.ui.info('后台预加载完成，刷新日志列表');
+        appState.refreshLogEntries(
+          sourceUrl,
+          stopOnCopy: _logListStopOnCopy,
+          workingDirectory: targetWc.isNotEmpty ? targetWc : null,
+        );
+      }
+    }).catchError((e, stackTrace) {
+      AppLogger.ui.error('后台预加载失败', e, stackTrace);
+    });
   }
 
   /// 选择目标工作副本目录
@@ -193,6 +249,10 @@ class _MainScreenState extends State<MainScreen> {
         LogFilterService.clearBoundaryCache(sourceUrl: _lastSourceUrl);
     }
     _lastSourceUrl = sourceUrl;
+    
+    // 保存源 URL 到历史记录（持久化）
+    final appState = Provider.of<AppState>(context, listen: false);
+    await appState.saveSourceUrlToHistory(sourceUrl);
 
     // 获取目标工作副本（用于 stopOnCopy 功能）
     final targetWc = _targetWcController.text.trim();
@@ -204,8 +264,6 @@ class _MainScreenState extends State<MainScreen> {
     _lastTargetWc = targetWc;
 
     try {
-      final appState = Provider.of<AppState>(context, listen: false);
-      
       AppLogger.ui.info('=== 刷新日志列表 ===');
       AppLogger.ui.info('源 URL: $sourceUrl');
       AppLogger.ui.info('stopOnCopy: $stopOnCopy');
@@ -464,6 +522,122 @@ class _MainScreenState extends State<MainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.green),
     );
+  }
+
+  /// 构建预加载状态 Widget
+  Widget _buildPreloadStatusWidget(String sourceUrl) {
+    final isLoading = _preloadProgress.status == PreloadStatus.loading;
+    final targetWc = _targetWcController.text.trim();
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 预加载状态显示
+        if (_preloadProgress.loadedCount > 0) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isLoading ? Colors.blue.shade50 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: isLoading ? Colors.blue.shade200 : Colors.grey.shade300,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isLoading) ...[
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  '已缓存 ${_preloadProgress.loadedCount} 条',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isLoading ? Colors.blue.shade700 : Colors.grey.shade700,
+                  ),
+                ),
+                if (_preloadProgress.earliestRevision != null) ...[
+                  Text(
+                    ' (r${_preloadProgress.earliestRevision})',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+        // 加载全部按钮
+        if (!isLoading)
+          TextButton.icon(
+            onPressed: sourceUrl.isEmpty
+                ? null
+                : () => _loadAllToBranchPoint(sourceUrl, targetWc),
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('加载全部', style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+            ),
+          )
+        else
+          TextButton.icon(
+            onPressed: _preloadService.stopPreload,
+            icon: const Icon(Icons.stop, size: 16),
+            label: const Text('停止', style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              foregroundColor: Colors.red,
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 加载全部日志到分支点
+  Future<void> _loadAllToBranchPoint(String sourceUrl, String targetWc) async {
+    if (sourceUrl.isEmpty) {
+      _showError('请先填写源 URL');
+      return;
+    }
+    
+    AppLogger.ui.info('开始加载全部日志到分支点');
+    AppLogger.ui.info('  源 URL: $sourceUrl');
+    AppLogger.ui.info('  目标工作副本: ${targetWc.isEmpty ? "未指定" : targetWc}');
+    
+    try {
+      await _preloadService.loadAllToBranchPoint(
+        sourceUrl: sourceUrl,
+        workingDirectory: targetWc.isEmpty ? null : targetWc,
+        fetchLimit: 200,
+      );
+      
+      // 加载完成后刷新日志列表
+      if (mounted) {
+        final appState = Provider.of<AppState>(context, listen: false);
+        await appState.refreshLogEntries(
+          sourceUrl,
+          stopOnCopy: _logListStopOnCopy,
+          workingDirectory: targetWc.isEmpty ? null : targetWc,
+        );
+        
+        if (_preloadProgress.status == PreloadStatus.completed) {
+          _showSuccess('加载完成: ${_preloadProgress.statusDescription}');
+        }
+      }
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('加载全部日志失败', e, stackTrace);
+      _showError('加载失败: $e');
+    }
   }
 
   /// 构建水平分割线（左右拖动调整水平分割比例）
@@ -1067,6 +1241,9 @@ class _MainScreenState extends State<MainScreen> {
                                   const Text('条', style: TextStyle(fontSize: 12)),
                                 ],
                               ),
+                              // 预加载状态和按钮
+                              const SizedBox(width: 16),
+                              _buildPreloadStatusWidget(sourceUrl),
                             ],
                           ),
                         ),

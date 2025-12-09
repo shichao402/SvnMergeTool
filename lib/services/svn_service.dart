@@ -106,13 +106,10 @@ class SvnService {
       args.addAll(['--password', password]);
     }
     
-    // 添加配置参数（使用独立配置目录，让 SVN 自己管理凭证缓存）
-    // 重要：不使用 --no-auth-cache，让 SVN 缓存认证信息到配置目录
-    // SVN 会自动将凭证缓存到配置目录，下次就不需要再输入了
-    args.addAll([
-      '--config-dir', _svnConfigDir!,
-      '--non-interactive',
-    ]);
+    // 使用系统默认的 SVN 配置目录（%APPDATA%/Subversion）
+    // 这样可以复用用户在命令行中已经缓存的凭据
+    // 注意：不再使用独立配置目录，避免凭据缓存问题
+    args.add('--non-interactive');
     
     // 添加基础参数
     args.addAll(baseArgs);
@@ -185,6 +182,19 @@ class SvnService {
       _log('✓ SVN 命令执行成功 (退出码: ${result.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
     } else {
       _log('✗ SVN 命令执行失败 (退出码: ${result.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
+      // 失败时记录命令和错误输出，便于排查
+      _log('  命令: svn $displayArgs');
+      if (result.stderr.toString().isNotEmpty) {
+        _log('  错误: ${result.stderr.toString().trim()}');
+      }
+      if (result.stdout.toString().isNotEmpty) {
+        final stdoutPreview = result.stdout.toString().trim();
+        if (stdoutPreview.length > 200) {
+          _log('  输出: ${stdoutPreview.substring(0, 200)}...');
+        } else {
+          _log('  输出: $stdoutPreview');
+        }
+      }
     }
     
     // 记录输出内容（仅摘要，不记录详细内容）
@@ -329,11 +339,13 @@ class SvnService {
   /// - 这是一个底层方法，只负责执行 SVN 命令
   /// - 不包含任何业务逻辑（如分支点查找）
   /// - 如果需要查找分支点，请使用 findBranchPoint() 方法
+  /// - [reverseOrder] 如果为 true，从 startRevision 向更旧的版本读取；否则向 HEAD 读取
   Future<String> log(
     String url, {
     int limit = 200,
     String? workingDirectory,
     int? startRevision,
+    bool reverseOrder = false,
     String? username,
     String? password,
   }) async {
@@ -348,9 +360,15 @@ class SvnService {
     final args = ['log', url];
     
     if (startRevision != null) {
-      // 如果指定了起始版本，从该版本开始读取
-      args.addAll(['-r', '$startRevision:HEAD', '-l', limit.toString()]);
-      _log('  从指定版本开始读取: r$startRevision');
+      if (reverseOrder) {
+        // 从指定版本向更旧的版本读取（用于加载更多历史数据）
+        args.addAll(['-r', '$startRevision:1', '-l', limit.toString()]);
+        _log('  从 r$startRevision 向更旧版本读取');
+      } else {
+        // 从指定版本向 HEAD 读取
+        args.addAll(['-r', '$startRevision:HEAD', '-l', limit.toString()]);
+        _log('  从 r$startRevision 向 HEAD 读取');
+      }
     } else {
       // 从最新开始读取（不限制版本范围）
       args.addAll(['-l', limit.toString()]);

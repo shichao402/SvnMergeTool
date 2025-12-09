@@ -1,37 +1,24 @@
 #!/bin/bash
-# GitHub Actions Workflow 日志收集脚本 (macOS/Linux)
+# GitHub Actions Workflow 日志收集脚本入口 (macOS/Linux)
 #
-# 收集 GitHub Actions workflow 的详细日志
-# 功能：
-# - 收集 workflow run 的详细信息
-# - 收集所有 jobs 的日志
-# - 保存到统一的日志文件
-#
-# 使用方法：
-#   ./scripts/collect_workflow_logs.sh [run_id]
-#
-# 如果不提供 run_id，将从 .github_run_id.txt 文件读取
+# 入口脚本：仅调用 Python 核心脚本
+
+set -e
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# 确定 Python 解释器
-if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
-    PYTHON="$PROJECT_DIR/.venv/bin/python"
+# 使用系统 Python 或虚拟环境 Python
+if [ -f "$SCRIPT_DIR/../.venv/bin/python" ]; then
+    PYTHON="$SCRIPT_DIR/../.venv/bin/python"
 elif command -v python3 &> /dev/null; then
-    PYTHON="python3"
+    PYTHON=python3
 elif command -v python &> /dev/null; then
-    PYTHON="python"
+    PYTHON=python
 else
-    echo "错误: 未找到 Python 解释器"
-    echo "请安装 Python 3 或创建虚拟环境: python -m venv .venv"
+    echo "错误: 未找到 Python 解释器" >&2
     exit 1
 fi
 
-# 使用 Python 运行核心脚本
-exec "$PYTHON" "$SCRIPT_DIR/lib/workflow_manager.py" collect-logs "$@"
-
-
-
-
+# 执行 Python 脚本
+exec "$PYTHON" "$SCRIPT_DIR/collect_workflow_logs.py" "$@"
