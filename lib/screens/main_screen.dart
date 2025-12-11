@@ -350,6 +350,118 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  /// SVN Update 目标工作副本
+  Future<void> _svnUpdate() async {
+    final targetWc = _targetWcController.text.trim();
+    if (targetWc.isEmpty) {
+      _showError('请先选择目标工作副本');
+      return;
+    }
+    
+    AppLogger.ui.info('开始 SVN Update: $targetWc');
+    _showInfo('正在执行 SVN Update...');
+    
+    try {
+      final svnService = SvnService();
+      final result = await svnService.update(targetWc);
+      
+      if (result.exitCode == 0) {
+        AppLogger.ui.info('SVN Update 成功');
+        _showSuccess('Update 完成');
+        
+        // Update 后刷新 mergeinfo（因为本地属性可能已更新）
+        final sourceUrl = _sourceUrlController.text.trim();
+        if (sourceUrl.isNotEmpty) {
+          _updateMergedStatus(sourceUrl, targetWc, forceRefresh: true);
+        }
+      } else {
+        AppLogger.ui.error('SVN Update 失败: ${result.stderr}');
+        _showError('Update 失败: ${result.stderr}');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('SVN Update 异常', e, stackTrace);
+      _showError('Update 异常: $e');
+    }
+  }
+
+  /// SVN Revert 目标工作副本
+  Future<void> _svnRevert() async {
+    final targetWc = _targetWcController.text.trim();
+    if (targetWc.isEmpty) {
+      _showError('请先选择目标工作副本');
+      return;
+    }
+    
+    // 确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认 Revert'),
+        content: Text('确定要 Revert "$targetWc" 吗？\n\n这将撤销所有本地修改！'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Revert'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    AppLogger.ui.info('开始 SVN Revert: $targetWc');
+    _showInfo('正在执行 SVN Revert...');
+    
+    try {
+      final svnService = SvnService();
+      final result = await svnService.revert(targetWc, recursive: true);
+      
+      if (result.exitCode == 0) {
+        AppLogger.ui.info('SVN Revert 成功');
+        _showSuccess('Revert 完成');
+      } else {
+        AppLogger.ui.error('SVN Revert 失败: ${result.stderr}');
+        _showError('Revert 失败: ${result.stderr}');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('SVN Revert 异常', e, stackTrace);
+      _showError('Revert 异常: $e');
+    }
+  }
+
+  /// SVN Cleanup 目标工作副本
+  Future<void> _svnCleanup() async {
+    final targetWc = _targetWcController.text.trim();
+    if (targetWc.isEmpty) {
+      _showError('请先选择目标工作副本');
+      return;
+    }
+    
+    AppLogger.ui.info('开始 SVN Cleanup: $targetWc');
+    _showInfo('正在执行 SVN Cleanup...');
+    
+    try {
+      final svnService = SvnService();
+      final result = await svnService.cleanup(targetWc);
+      
+      if (result.exitCode == 0) {
+        AppLogger.ui.info('SVN Cleanup 成功');
+        _showSuccess('Cleanup 完成');
+      } else {
+        AppLogger.ui.error('SVN Cleanup 失败: ${result.stderr}');
+        _showError('Cleanup 失败: ${result.stderr}');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('SVN Cleanup 异常', e, stackTrace);
+      _showError('Cleanup 异常: $e');
+    }
+  }
+
   /// 刷新日志列表（纯本地过滤操作）
   /// 
   /// 新设计：过滤器只负责过滤 db 缓存中的数据，不触发网络请求
@@ -401,8 +513,9 @@ class _MainScreenState extends State<MainScreen> {
       await appState.setMinRevision(minRevision, sourceUrl: sourceUrl);
 
       // 更新合并状态（如果有目标工作副本）
+      // 用户主动刷新时，强制从 SVN 重新获取 mergeinfo
       if (targetWc.isNotEmpty) {
-        _updateMergedStatus(sourceUrl, targetWc);
+        _updateMergedStatus(sourceUrl, targetWc, forceRefresh: true);
       }
 
       AppLogger.ui.info('=== 日志列表刷新完成 ===');
@@ -449,47 +562,25 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  /// 更新合并状态（从 SVN mergeinfo 和 MergeState 获取）
+  /// 更新合并状态（从 MergeInfoCacheService 获取）
   /// 
-  /// 同时检查：
-  /// 1. SVN 上已经合并过的记录（通过 svn mergeinfo 命令）
-  /// 2. 本程序合并过的记录（从 MergeState 获取）
+  /// 使用 MergeInfoCacheService 统一管理 mergeinfo 缓存
+  /// 如果缓存为空，会自动从 SVN 获取
   Future<void> _updateMergedStatus(
     String sourceUrl,
-    String targetWc,
-  ) async {
-    if (targetWc.isEmpty) return;
+    String targetWc, {
+    bool forceRefresh = false,
+  }) async {
+    if (targetWc.isEmpty || sourceUrl.isEmpty) return;
     
     try {
       final appState = Provider.of<AppState>(context, listen: false);
-      final mergeState = Provider.of<MergeState>(context, listen: false);
       
-      // 1. 从 MergeState 获取本程序已完成的合并记录
-      appState.updateMergedStatusFromMergeState(
-        mergeState,
-        sourceUrl: sourceUrl,
-        targetWc: targetWc,
-      );
+      // 使用 MergeInfoCacheService 获取合并状态
+      // 如果 forceRefresh 为 true，会从 SVN 重新获取
+      await appState.loadMergeInfo(forceRefresh: forceRefresh);
       
-      // 2. 从 SVN mergeinfo 获取所有已合并的记录
-      // 获取当前页面显示的所有 revision
-      final currentRevisions = appState.paginatedLogEntries.map((e) => e.revision).toList();
-      if (currentRevisions.isEmpty) return;
-      
-      AppLogger.ui.info('正在检查 ${currentRevisions.length} 个 revision 的 SVN 合并状态...');
-      
-      final svnMergedStatus = await _svnService.checkMergedStatus(
-        sourceUrl: sourceUrl,
-        revisions: currentRevisions,
-        targetWc: targetWc,
-      );
-      
-      // 合并 SVN mergeinfo 的结果到 appState
-      if (svnMergedStatus.isNotEmpty) {
-        final mergedCount = svnMergedStatus.values.where((v) => v).length;
-        AppLogger.ui.info('SVN mergeinfo 检测到 $mergedCount 个已合并的 revision');
-        appState.addMergedStatus(svnMergedStatus);
-      }
+      AppLogger.ui.info('合并状态已更新');
     } catch (e, stackTrace) {
       AppLogger.ui.error('更新合并状态失败', e, stackTrace);
     }
@@ -703,6 +794,63 @@ class _MainScreenState extends State<MainScreen> {
   void _showSuccess(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
+  }
+
+  void _showInfo(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.blue),
+    );
+  }
+
+  /// 构建 SVN 操作按钮组
+  Widget _buildSvnOperationButtons() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Update 按钮
+        Tooltip(
+          message: 'SVN Update - 更新工作副本到最新版本',
+          child: OutlinedButton.icon(
+            onPressed: _svnUpdate,
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('Update'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              minimumSize: Size.zero,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        // Revert 按钮
+        Tooltip(
+          message: 'SVN Revert - 撤销所有本地修改',
+          child: OutlinedButton.icon(
+            onPressed: _svnRevert,
+            icon: const Icon(Icons.undo, size: 16),
+            label: const Text('Revert'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              minimumSize: Size.zero,
+              foregroundColor: Colors.orange,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        // Cleanup 按钮
+        Tooltip(
+          message: 'SVN Cleanup - 清理工作副本',
+          child: OutlinedButton.icon(
+            onPressed: _svnCleanup,
+            icon: const Icon(Icons.cleaning_services, size: 16),
+            label: const Text('Cleanup'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              minimumSize: Size.zero,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1002,6 +1150,9 @@ class _MainScreenState extends State<MainScreen> {
                   onPressed: _pickTargetWc,
                   child: const Text('选择目录...'),
                 ),
+                const SizedBox(width: 8),
+                // SVN 操作按钮组
+                _buildSvnOperationButtons(),
               ],
             ),
           ],
@@ -1302,7 +1453,6 @@ class _MainScreenState extends State<MainScreen> {
                 child: Consumer<AppState>(
                   builder: (context, appState, _) {
                     final paginatedEntries = appState.paginatedLogEntries;
-                    final mergedStatus = appState.mergedStatus;
                     final sourceUrl = _sourceUrlController.text.trim();
                     
                     return Column(
@@ -1316,7 +1466,8 @@ class _MainScreenState extends State<MainScreen> {
                               final entry = paginatedEntries[index];
                               final isSelected = _selectedRevisions.contains(entry.revision);
                               final isPending = appState.pendingRevisions.contains(entry.revision);
-                              final isMerged = mergedStatus[entry.revision] ?? false;
+                              // 使用同步方法检查合并状态
+                              final isMerged = appState.isRevisionMergedSync(entry.revision);
                               
                               // 隔行样式
                               final isEven = index % 2 == 0;

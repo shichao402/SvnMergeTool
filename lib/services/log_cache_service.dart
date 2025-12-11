@@ -603,6 +603,10 @@ class LogCacheService {
       final latestRevision = entries.map((e) => e.revision).reduce((a, b) => a > b ? a : b);
       final earliestRevision = entries.map((e) => e.revision).reduce((a, b) => a < b ? a : b);
       
+      AppLogger.storage.info('【insertEntries】插入 ${entries.length} 条日志');
+      AppLogger.storage.info('  范围: [$latestRevision, $earliestRevision]');
+      AppLogger.storage.info('  isFromHead: $isFromHead');
+      
       // 获取当前元数据
       final currentMeta = db.select('SELECT latest_revision, earliest_revision FROM cache_metadata WHERE id = 1');
       int newLatest = latestRevision;
@@ -904,10 +908,25 @@ class LogCacheService {
     }
   }
 
+
   /// 获取最新的区间（startRevision 最大的那个）
   Future<CachedRange?> getLatestRange(String sourceUrl) async {
     try {
       final db = await _getDatabase(sourceUrl);
+      
+      // 先查询所有区间，用于调试
+      final allRanges = db.select(
+        'SELECT id, start_revision, end_revision FROM cached_ranges ORDER BY start_revision DESC',
+      );
+      if (allRanges.isNotEmpty) {
+        AppLogger.storage.info('【getLatestRange】所有区间:');
+        for (final row in allRanges) {
+          AppLogger.storage.info('  - id=${row.columnAt(0)}, [${row.columnAt(1)}, ${row.columnAt(2)}]');
+        }
+      } else {
+        AppLogger.storage.info('【getLatestRange】没有任何区间');
+      }
+      
       final result = db.select(
         'SELECT id, start_revision, end_revision, created_at, updated_at FROM cached_ranges ORDER BY start_revision DESC LIMIT 1',
       );
@@ -917,13 +936,15 @@ class LogCacheService {
       }
       
       final row = result.first;
-      return CachedRange(
+      final range = CachedRange(
         id: row.columnAt(0) as int,
         startRevision: row.columnAt(1) as int,
         endRevision: row.columnAt(2) as int,
         createdAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(3) as int),
         updatedAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(4) as int),
       );
+      AppLogger.storage.info('【getLatestRange】返回最新区间: $range');
+      return range;
     } catch (e, stackTrace) {
       AppLogger.storage.error('获取最新区间失败', e, stackTrace);
       return null;
@@ -965,30 +986,42 @@ class LogCacheService {
     bool isFromHead,
   ) async {
     try {
+      AppLogger.storage.info('【区间更新】开始');
+      AppLogger.storage.info('  本次插入范围: [$latestRevision, $earliestRevision]');
+      AppLogger.storage.info('  isFromHead: $isFromHead');
+      
       final latestRange = await getLatestRange(sourceUrl);
+      AppLogger.storage.info('  当前最新区间: ${latestRange ?? "无"}');
       
       if (latestRange == null) {
         // 没有区间，创建新区间
+        AppLogger.storage.info('  → 没有区间，创建新区间');
         await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
         return;
       }
       
       if (isFromHead) {
         // 从 HEAD 获取的数据
-        // 检查是否与现有最新区间连续
+        // 检查是否与现有最新区间连续（首尾相同才算连续）
+        AppLogger.storage.info('  → 从 HEAD 获取，检查连续性: earliestRevision($earliestRevision) == startRevision(${latestRange.startRevision})?');
         if (earliestRevision == latestRange.startRevision) {
           // 连续：扩展最新区间的起点
+          AppLogger.storage.info('  → 连续！扩展最新区间起点到 $latestRevision');
           await extendLatestRangeStart(sourceUrl, latestRevision);
         } else if (latestRevision > latestRange.startRevision) {
           // 不连续且更新：创建新区间（这将成为最新区间）
+          AppLogger.storage.warn('  → 不连续！创建新区间 [$latestRevision, $earliestRevision]');
           await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
+        } else {
+          AppLogger.storage.info('  → 数据已存在 (latestRevision $latestRevision <= startRevision ${latestRange.startRevision})，不需要更新');
         }
-        // 如果 latestRevision <= latestRange.startRevision，说明数据已存在，不需要更新
       } else {
         // 从缓存最旧版本继续获取的数据
-        // 检查是否与最新区间连续
+        // 检查是否与最新区间连续（首尾相同才算连续）
+        AppLogger.storage.info('  → 加载更多，检查连续性: latestRevision($latestRevision) == endRevision(${latestRange.endRevision})?');
         if (latestRevision == latestRange.endRevision) {
           // 连续：扩展最新区间的终点
+          AppLogger.storage.info('  → 连续！扩展最新区间终点到 $earliestRevision');
           await extendLatestRangeEnd(sourceUrl, earliestRevision);
         } else {
           // 不连续：这种情况理论上不应该发生
@@ -997,6 +1030,7 @@ class LogCacheService {
           await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
         }
       }
+      AppLogger.storage.info('【区间更新】完成');
     } catch (e, stackTrace) {
       AppLogger.storage.error('更新区间失败', e, stackTrace);
     }
@@ -1154,7 +1188,9 @@ class LogCacheService {
   }) async {
     try {
       final latestRange = await getLatestRange(sourceUrl);
+      AppLogger.storage.info('【getEntriesInLatestRange】最新区间: ${latestRange ?? "无"}');
       if (latestRange == null) {
+        AppLogger.storage.info('  → 没有区间，返回空列表');
         return [];
       }
       

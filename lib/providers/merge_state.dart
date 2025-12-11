@@ -7,10 +7,12 @@ import '../models/merge_job.dart';
 import '../services/storage_service.dart';
 import '../services/svn_service.dart';
 import '../services/logger_service.dart';
+import '../services/mergeinfo_cache_service.dart';
 
 class MergeState extends ChangeNotifier {
   final StorageService _storageService = StorageService();
   final SvnService _svnService = SvnService();
+  final MergeInfoCacheService _mergeInfoService = MergeInfoCacheService();
 
   List<MergeJob> _jobs = [];
   int _currentJobIndex = -1;
@@ -215,6 +217,14 @@ class MergeState extends ChangeNotifier {
 
       // 更新任务状态为完成
       _jobs[nextIndex] = job.copyWith(status: JobStatus.done, error: '');
+      
+      // 更新 mergeinfo 缓存（将合并的 revision 添加到缓存）
+      await _mergeInfoService.addMergedRevisions(
+        job.sourceUrl,
+        job.targetWc,
+        job.revisions.toSet(),
+      );
+      AppLogger.merge.info('已更新 mergeinfo 缓存: ${job.revisions.length} 个 revision');
     } catch (e, stackTrace) {
       _appendLog('[ERROR] 任务 #${job.jobId} 执行失败：$e');
       AppLogger.merge.error('任务执行失败', e, stackTrace);

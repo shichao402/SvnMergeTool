@@ -18,6 +18,21 @@ import 'package:process_run/shell.dart';
 import 'logger_service.dart';
 import 'svn_xml_parser.dart';
 
+/// ProcessResult 的包装类，用于处理编码问题
+class _ProcessResultWrapper {
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+  final int pid;
+
+  _ProcessResultWrapper({
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+    required this.pid,
+  });
+}
+
 class SvnService {
   /// 单例模式
   static final SvnService _instance = SvnService._internal();
@@ -113,7 +128,7 @@ class SvnService {
   /// [workingDirectory] 工作目录
   /// [username] SVN 用户名
   /// [password] SVN 密码
-  Future<ProcessResult> _runSvnCommand(
+  Future<_ProcessResultWrapper> _runSvnCommand(
     List<String> args, {
     bool useXml = false,
     String? workingDirectory,
@@ -153,31 +168,61 @@ class SvnService {
     
     final startTime = DateTime.now();
     
+    // 使用 latin1 编码读取原始字节，避免 UTF-8 解码错误
+    // Windows 上 SVN 可能输出 GBK 编码的中文
     final result = await Process.run(
       fullArgs[0],
       fullArgs.sublist(1),
       workingDirectory: workingDirectory,
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
+      stdoutEncoding: latin1,
+      stderrEncoding: latin1,
+    );
+    
+    // 尝试将输出转换为 UTF-8，如果失败则保持原样
+    String stdout;
+    String stderr;
+    try {
+      // 先尝试 UTF-8 解码
+      stdout = utf8.decode(latin1.encode(result.stdout.toString()), allowMalformed: true);
+      stderr = utf8.decode(latin1.encode(result.stderr.toString()), allowMalformed: true);
+    } catch (_) {
+      // 如果失败，尝试 GBK 解码（Windows 中文环境）
+      try {
+        // 使用 systemEncoding（Windows 上通常是 GBK）
+        stdout = result.stdout.toString();
+        stderr = result.stderr.toString();
+      } catch (_) {
+        // 最后保底：直接使用原始输出
+        stdout = result.stdout.toString();
+        stderr = result.stderr.toString();
+      }
+    }
+    
+    // 创建一个包装结果
+    final wrappedResult = _ProcessResultWrapper(
+      exitCode: result.exitCode,
+      stdout: stdout,
+      stderr: stderr,
+      pid: result.pid,
     );
     
     final endTime = DateTime.now();
     final duration = endTime.difference(startTime);
     
-    final output = result.stdout.toString() + result.stderr.toString();
+    final output = stdout + stderr;
     
     // 记录命令执行结果
-    if (result.exitCode == 0) {
-      _log('✓ SVN 命令执行成功 (退出码: ${result.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
+    if (wrappedResult.exitCode == 0) {
+      _log('✓ SVN 命令执行成功 (退出码: ${wrappedResult.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
     } else {
-      _log('✗ SVN 命令执行失败 (退出码: ${result.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
+      _log('✗ SVN 命令执行失败 (退出码: ${wrappedResult.exitCode}, 耗时: ${duration.inMilliseconds}ms)');
       // 失败时记录命令和错误输出，便于排查
       _log('  命令: svn $displayArgs');
-      if (result.stderr.toString().isNotEmpty) {
-        _log('  错误: ${result.stderr.toString().trim()}');
+      if (stderr.isNotEmpty) {
+        _log('  错误: ${stderr.trim()}');
       }
-      if (result.stdout.toString().isNotEmpty) {
-        final stdoutPreview = result.stdout.toString().trim();
+      if (stdout.isNotEmpty) {
+        final stdoutPreview = stdout.trim();
         if (stdoutPreview.length > 200) {
           _log('  输出: ${stdoutPreview.substring(0, 200)}...');
         } else {
@@ -201,16 +246,16 @@ class SvnService {
     
     _log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
-    if (result.exitCode != 0) {
+    if (wrappedResult.exitCode != 0) {
       throw SvnException(
-        'SVN 命令执行失败 (退出码: ${result.exitCode})',
+        'SVN 命令执行失败 (退出码: ${wrappedResult.exitCode})',
         command: displayArgs,
-        exitCode: result.exitCode,
+        exitCode: wrappedResult.exitCode,
         output: output,
       );
     }
     
-    return result;
+    return wrappedResult;
   }
 
   /// 查找分支点（用于 stopOnCopy 功能）
@@ -441,57 +486,81 @@ class SvnService {
   }
 
   /// 执行 SVN update
-  Future<void> update(
+  /// 
+  /// 返回结果，可以检查 exitCode 判断是否成功
+  Future<_ProcessResultWrapper> update(
     String targetWc, {
     String? username,
     String? password,
   }) async {
-    _log('更新工作副本...');
+    _log('更新工作副本: $targetWc');
     
-    await _runSvnCommand(
+    final result = await _runSvnCommand(
       ['update'],
       workingDirectory: targetWc,
       username: username,
       password: password,
     );
     
-    _log('更新完成');
+    if (result.exitCode == 0) {
+      _log('更新完成');
+    } else {
+      _log('更新失败: ${result.stderr}');
+    }
+    return result;
   }
 
   /// 执行 SVN revert
-  Future<void> revert(
+  /// 
+  /// 返回结果，可以检查 exitCode 判断是否成功
+  /// [recursive] 是否递归还原（默认 false）
+  Future<_ProcessResultWrapper> revert(
     String targetWc, {
+    bool recursive = false,
     String? username,
     String? password,
   }) async {
-    _log('还原所有本地修改...');
+    _log('还原本地修改: $targetWc (recursive: $recursive)');
     
-    await _runSvnCommand(
-      ['revert', '-R', '.'],
+    final args = recursive ? ['revert', '-R', '.'] : ['revert', '.'];
+    final result = await _runSvnCommand(
+      args,
       workingDirectory: targetWc,
       username: username,
       password: password,
     );
     
-    _log('还原完成');
+    if (result.exitCode == 0) {
+      _log('还原完成');
+    } else {
+      _log('还原失败: ${result.stderr}');
+    }
+    return result;
   }
 
   /// 执行 SVN cleanup
-  Future<void> cleanup(
+  /// 
+  /// 返回结果，可以检查 exitCode 判断是否成功
+  Future<_ProcessResultWrapper> cleanup(
     String targetWc, {
     String? username,
     String? password,
   }) async {
-    _log('清理工作副本...');
+    _log('清理工作副本: $targetWc');
     
-    await _runSvnCommand(
+    final result = await _runSvnCommand(
       ['cleanup'],
       workingDirectory: targetWc,
       username: username,
       password: password,
     );
     
-    _log('清理完成');
+    if (result.exitCode == 0) {
+      _log('清理完成');
+    } else {
+      _log('清理失败: ${result.stderr}');
+    }
+    return result;
   }
 
   /// 检查工作副本是否有冲突
@@ -811,6 +880,147 @@ class SvnService {
     }
     
     return result;
+  }
+
+  /// 获取所有已合并的 revision
+  /// 
+  /// 返回一个 Set，包含所有已合并的 revision
+  /// 
+  /// 注意：mergeinfo 不支持 --xml，使用文本解析
+  Future<Set<int>> getAllMergedRevisions({
+    required String sourceUrl,
+    required String targetWc,
+    String? username,
+    String? password,
+  }) async {
+    _log('获取所有已合并的 revision: $sourceUrl -> $targetWc');
+    
+    try {
+      final mergeinfoResult = await _runSvnCommand(
+        ['mergeinfo', '--show-revs', 'merged', sourceUrl, targetWc],
+        useXml: false,  // mergeinfo 不支持 XML
+        workingDirectory: targetWc,
+        username: username,
+        password: password,
+      );
+      
+      final output = mergeinfoResult.stdout.toString();
+      // 解析文本输出（格式：r12345 或 r12345\nr12346\n...）
+      final revisionPattern = RegExp(r'r(\d+)');
+      final mergedRevisions = revisionPattern
+          .allMatches(output)
+          .map((m) => int.tryParse(m.group(1)!))
+          .where((r) => r != null)
+          .cast<int>()
+          .toSet();
+      
+      _log('已合并的 revision 数量: ${mergedRevisions.length}');
+      return mergedRevisions;
+    } catch (e, stackTrace) {
+      _log('⚠ 获取已合并的 revision 失败: $e');
+      AppLogger.svn.error('获取已合并的 revision 异常', e, stackTrace);
+      return {};
+    }
+  }
+
+  /// 从本地工作副本读取 svn:mergeinfo 属性（快速，无网络请求）
+  /// 
+  /// 返回指定源 URL 已合并的 revision 集合
+  /// 
+  /// 这个方法比 getAllMergedRevisions 快得多，因为：
+  /// 1. 只读取本地属性，不需要网络请求
+  /// 2. 直接解析 mergeinfo 格式，不需要 SVN 服务器计算
+  /// 
+  /// [sourceUrl] 源 URL（用于匹配 mergeinfo 中的路径）
+  /// [targetWc] 目标工作副本路径
+  Future<Set<int>> getMergedRevisionsFromPropget({
+    required String sourceUrl,
+    required String targetWc,
+  }) async {
+    _log('从本地属性读取 mergeinfo: $targetWc');
+    
+    try {
+      // 使用 svn propget 读取本地 mergeinfo 属性
+      final result = await _runSvnCommand(
+        ['propget', 'svn:mergeinfo', targetWc],
+        useXml: false,
+        workingDirectory: targetWc,
+      );
+      
+      final output = result.stdout.toString().trim();
+      if (output.isEmpty) {
+        _log('本地 mergeinfo 属性为空');
+        return {};
+      }
+      
+      // 解析 mergeinfo 格式
+      // 格式: /path/to/source:rev1,rev2-rev3,rev4
+      // 例如: /trunk:584436-599500,599502,599747
+      final mergedRevisions = <int>{};
+      
+      // 从 sourceUrl 提取路径部分用于匹配
+      // 例如: http://svn.example.com/repo/trunk -> /trunk
+      final sourceUri = Uri.parse(sourceUrl);
+      final sourcePath = sourceUri.path;
+      
+      // 解析每一行 mergeinfo
+      for (final line in output.split('\n')) {
+        final trimmedLine = line.trim();
+        if (trimmedLine.isEmpty) continue;
+        
+        // 格式: /path:revisions
+        final colonIndex = trimmedLine.lastIndexOf(':');
+        if (colonIndex == -1) continue;
+        
+        final path = trimmedLine.substring(0, colonIndex);
+        final revisionsStr = trimmedLine.substring(colonIndex + 1);
+        
+        // 检查路径是否匹配源 URL
+        // 支持部分匹配（例如 /trunk 匹配 /OSGame/Client_proj/trunk）
+        if (!sourcePath.endsWith(path) && !path.endsWith(sourcePath.split('/').last)) {
+          // 尝试更宽松的匹配：检查路径的最后一部分
+          final sourceLastPart = sourcePath.split('/').where((p) => p.isNotEmpty).lastOrNull ?? '';
+          final pathLastPart = path.split('/').where((p) => p.isNotEmpty).lastOrNull ?? '';
+          if (sourceLastPart != pathLastPart) {
+            continue;
+          }
+        }
+        
+        // 解析 revision 范围
+        // 格式: rev1,rev2-rev3,rev4
+        for (final part in revisionsStr.split(',')) {
+          final trimmedPart = part.trim();
+          if (trimmedPart.isEmpty) continue;
+          
+          if (trimmedPart.contains('-')) {
+            // 范围格式: start-end
+            final rangeParts = trimmedPart.split('-');
+            if (rangeParts.length == 2) {
+              final start = int.tryParse(rangeParts[0].trim());
+              final end = int.tryParse(rangeParts[1].trim());
+              if (start != null && end != null) {
+                for (var rev = start; rev <= end; rev++) {
+                  mergedRevisions.add(rev);
+                }
+              }
+            }
+          } else {
+            // 单个 revision
+            final rev = int.tryParse(trimmedPart);
+            if (rev != null) {
+              mergedRevisions.add(rev);
+            }
+          }
+        }
+      }
+      
+      _log('从本地属性解析到 ${mergedRevisions.length} 个已合并的 revision');
+      return mergedRevisions;
+    } catch (e, stackTrace) {
+      _log('⚠ 从本地属性读取 mergeinfo 失败: $e');
+      AppLogger.svn.error('从本地属性读取 mergeinfo 异常', e, stackTrace);
+      return {};
+    }
   }
 
   /// 获取 revision 涉及的文件列表

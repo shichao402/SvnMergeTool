@@ -12,10 +12,12 @@ import '../services/config_service.dart';
 import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
 import '../services/logger_service.dart';
+import '../services/mergeinfo_cache_service.dart';
 
 class AppState extends ChangeNotifier {
   final ConfigService _configService = ConfigService();
   final StorageService _storageService = StorageService();
+  final MergeInfoCacheService _mergeInfoService = MergeInfoCacheService();
 
   AppConfig? _config;
   List<String> _sourceUrlHistory = [];
@@ -23,9 +25,6 @@ class AppState extends ChangeNotifier {
   String? _lastSourceUrl;
   String? _lastTargetWc;
   List<int> _pendingRevisions = [];
-  
-  // 合并状态：key 是 revision，value 是是否已合并
-  Map<int, bool> _mergedStatus = {};
   
   // 分页相关
   int _currentPage = 0;
@@ -48,6 +47,7 @@ class AppState extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   bool _isLoadingData = false; // 是否正在从 SVN 获取数据（由外部设置）
+  bool _isMergeInfoLoading = false; // 是否正在加载 mergeinfo
 
   // Getters
   AppConfig? get config => _config;
@@ -56,7 +56,6 @@ class AppState extends ChangeNotifier {
   String? get lastSourceUrl => _lastSourceUrl;
   String? get lastTargetWc => _lastTargetWc;
   List<int> get pendingRevisions => _pendingRevisions;
-  Map<int, bool> get mergedStatus => _mergedStatus;
   int get currentPage => _currentPage;
   int get pageSize => _pageSize;
   LogFilter get filter => _filter;
@@ -65,6 +64,8 @@ class AppState extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isLoadingData => _isLoadingData; // 是否正在从 SVN 获取数据
+  bool get isMergeInfoLoading => _isMergeInfoLoading; // 是否正在加载 mergeinfo
+  MergeInfoCacheService get mergeInfoService => _mergeInfoService;
   
   /// 获取当前页的日志条目
   List<LogEntry> get paginatedLogEntries => _paginatedResult?.entries ?? [];
@@ -136,6 +137,9 @@ class AppState extends ChangeNotifier {
       _targetWcHistory = await _storageService.getTargetWcHistory();
       _lastSourceUrl = await _storageService.getLastSourceUrl();
       _lastTargetWc = await _storageService.getLastTargetWc();
+      
+      // 初始化 MergeInfo 缓存服务
+      await _mergeInfoService.init();
 
       _isInitialized = true;
       _error = null;
@@ -158,6 +162,11 @@ class AppState extends ChangeNotifier {
   /// 过滤条件（包括 minRevision）已经在 _filter 中设置
   Future<void> refreshLogEntries(String sourceUrl) async {
     try {
+      AppLogger.app.info('【refreshLogEntries】开始从缓存读取日志');
+      AppLogger.app.info('  sourceUrl: $sourceUrl');
+      AppLogger.app.info('  filter: $_filter');
+      AppLogger.app.info('  page: $_currentPage, pageSize: $_pageSize');
+      
       _paginatedResult = await _filterService.getPaginatedEntries(
         sourceUrl,
         _filter,
@@ -169,6 +178,9 @@ class AppState extends ChangeNotifier {
       if (_paginatedResult != null) {
         _cachedTotalCount = _paginatedResult!.totalCount;
         _cachedTotalPages = _paginatedResult!.totalPages;
+        AppLogger.app.info('  结果: ${_paginatedResult!.entries.length} 条, 总数: $_cachedTotalCount, 总页数: $_cachedTotalPages');
+      } else {
+        AppLogger.app.info('  结果: null');
       }
       
       notifyListeners();
@@ -227,47 +239,111 @@ class AppState extends ChangeNotifier {
     }
   }
   
-  /// 设置合并状态
+  /// 同步检查 revision 是否已合并（仅从内存缓存）
   /// 
-  /// 注意：此方法已废弃，合并状态现在从 MergeState 获取
-  @Deprecated('合并状态现在从 MergeState 获取，不再通过 mergeinfo 检查')
-  void setMergedStatus(Map<int, bool> status) {
-    _mergedStatus = status;
-    notifyListeners();
+  /// 这是一个同步方法，用于 UI 渲染时快速判断合并状态
+  /// 如果缓存未加载，返回 false
+  bool isRevisionMergedSync(int revision) {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return false;
+    }
+    return _mergeInfoService.isRevisionMergedSync(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+      revision,
+    );
   }
-
-  /// 从 MergeState 更新合并状态
+  
+  /// 同步获取已合并的 revision 集合（仅从内存缓存）
   /// 
-  /// 只记录本程序合并过的记录（不再通过 mergeinfo 检查）
+  /// 这是一个同步方法，用于 UI 渲染
+  Set<int> getMergedRevisionsSync() {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return {};
+    }
+    return _mergeInfoService.getMergedRevisionsSync(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+    );
+  }
+  
+  /// 检查 revision 是否已合并
   /// 
-  /// [mergeState] MergeState 实例
-  /// [sourceUrl] 源 URL（可选，用于过滤）
-  /// [targetWc] 目标工作副本（可选，用于过滤）
-  void updateMergedStatusFromMergeState(
-    dynamic mergeState, {
-    String? sourceUrl,
-    String? targetWc,
-  }) {
+  /// 从 MergeInfoCacheService 获取合并状态
+  Future<bool> isRevisionMerged(int revision) async {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return false;
+    }
+    return await _mergeInfoService.isRevisionMerged(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+      revision,
+    );
+  }
+  
+  /// 批量检查 revision 的合并状态
+  /// 
+  /// 从 MergeInfoCacheService 获取合并状态
+  Future<Map<int, bool>> checkMergedStatus(List<int> revisions) async {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return {for (var rev in revisions) rev: false};
+    }
+    return await _mergeInfoService.checkMergedStatus(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+      revisions,
+    );
+  }
+  
+  /// 加载 mergeinfo 缓存
+  /// 
+  /// 如果缓存为空，会从 SVN 获取
+  Future<void> loadMergeInfo({bool forceRefresh = false}) async {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return;
+    }
+    
+    _isMergeInfoLoading = true;
+    notifyListeners();
+    
     try {
-      // 从 MergeState 获取已完成的合并记录
-      final mergedRevisions = mergeState.getMergedRevisions(
-        sourceUrl: sourceUrl,
-        targetWc: targetWc,
+      await _mergeInfoService.getMergedRevisions(
+        _lastSourceUrl!,
+        _lastTargetWc!,
+        forceRefresh: forceRefresh,
       );
-      
-      // 更新合并状态（保留已有的记录，只更新新的）
-      _mergedStatus.addAll(mergedRevisions);
-      notifyListeners();
+      AppLogger.app.info('MergeInfo 加载完成');
     } catch (e, stackTrace) {
-      AppLogger.app.error('从 MergeState 更新合并状态失败', e, stackTrace);
+      AppLogger.app.error('加载 MergeInfo 失败', e, stackTrace);
+    } finally {
+      _isMergeInfoLoading = false;
+      notifyListeners();
     }
   }
   
-  /// 添加合并状态（从 SVN mergeinfo 获取）
-  /// 
-  /// [status] 合并状态 Map，key 是 revision，value 是是否已合并
-  void addMergedStatus(Map<int, bool> status) {
-    _mergedStatus.addAll(status);
+  /// 添加已合并的 revision（由本程序合并后调用）
+  Future<void> addMergedRevision(int revision) async {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return;
+    }
+    await _mergeInfoService.addMergedRevision(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+      revision,
+    );
+    notifyListeners();
+  }
+  
+  /// 添加多个已合并的 revision
+  Future<void> addMergedRevisions(Set<int> revisions) async {
+    if (_lastSourceUrl == null || _lastTargetWc == null) {
+      return;
+    }
+    await _mergeInfoService.addMergedRevisions(
+      _lastSourceUrl!,
+      _lastTargetWc!,
+      revisions,
+    );
     notifyListeners();
   }
   
@@ -366,4 +442,5 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 }
+
 

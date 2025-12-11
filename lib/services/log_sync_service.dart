@@ -84,13 +84,14 @@ class LogSyncService {
       }
       
       // 步骤3：从 SVN 获取日志
+      // 注意：从 HEAD 向旧版本读取，所以使用 reverseOrder: true
       AppLogger.svn.info('【步骤 3/4】从 SVN 获取日志');
       final rawLog = await _svnService.log(
         sourceUrl,
         limit: fetchCount,
         workingDirectory: workingDirectory,
         startRevision: startRevision,
-        reverseOrder: false,  // 从新到旧
+        reverseOrder: true,  // 从 HEAD 向旧版本读取
       );
       
       // 解析 XML 日志
@@ -103,10 +104,12 @@ class LogSyncService {
         return 0;
       }
       
-      // 如果有缓存区间，需要截断到缓存头，确保不重复
+      // 如果有缓存区间，需要截断到缓存头（包含边界值，确保区间连续）
+      // 使用 >= 而不是 >，因为 LogCacheService 使用 INSERT OR REPLACE 处理重复数据
+      // 这样可以确保 earliestRevision == latestRange.startRevision，满足区间连续性判断
       if (latestRange != null) {
         final beforeCount = entries.length;
-        entries = entries.where((e) => e.revision > latestRange.startRevision).toList();
+        entries = entries.where((e) => e.revision >= latestRange.startRevision).toList();
         if (entries.length < beforeCount) {
           AppLogger.svn.info('  截断后剩余 ${entries.length} 条（排除已缓存的）');
         }

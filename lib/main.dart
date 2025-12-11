@@ -114,12 +114,21 @@ class _AppInitializerState extends State<AppInitializer> {
     await appState.init();
     await mergeState.init();
     
-    // 初始化完成后，从 MergeState 加载所有已完成的合并记录
-    // 只记录本程序合并过的记录（不再通过 mergeinfo 检查）
-    final mergedRevisions = mergeState.getMergedRevisions();
-    if (mergedRevisions.isNotEmpty) {
-      appState.updateMergedStatusFromMergeState(mergeState);
-      AppLogger.app.info('已加载 ${mergedRevisions.length} 个本程序合并过的 revision');
+    // 如果有上次使用的 sourceUrl 和 targetWc，自动加载 mergeinfo 缓存
+    if (appState.lastSourceUrl != null && 
+        appState.lastSourceUrl!.isNotEmpty &&
+        appState.lastTargetWc != null && 
+        appState.lastTargetWc!.isNotEmpty) {
+      AppLogger.app.info('正在加载 mergeinfo 缓存...');
+      // 先加载缓存（快速显示），然后后台静默刷新
+      appState.loadMergeInfo().then((_) {
+        AppLogger.app.info('MergeInfo 缓存加载完成');
+        // 后台静默刷新 mergeinfo（检测程序外的合并操作）
+        AppLogger.app.info('后台静默刷新 mergeinfo...');
+        appState.loadMergeInfo(forceRefresh: true).then((_) {
+          AppLogger.app.info('MergeInfo 后台刷新完成');
+        });
+      });
     }
   }
 
