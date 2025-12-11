@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/app_state.dart';
 import '../providers/merge_state.dart';
+import '../models/app_config.dart' show PreloadSettings;
 import '../models/log_entry.dart';
 import '../models/merge_job.dart';
 import '../services/svn_service.dart';
@@ -11,8 +12,8 @@ import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
 import '../services/log_file_cache_service.dart';
 import '../services/preload_service.dart';
-import '../services/storage_service.dart' show StorageService;
-import '../widgets/preload_settings_dialog.dart';
+import '../services/log_cache_service.dart';
+import 'settings_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -46,6 +47,11 @@ class _MainScreenState extends State<MainScreen> {
   // 数据访问必须通过 AppState，遵循分级数据请求模式
   final _logFileCacheService = LogFileCacheService();
   final _preloadService = PreloadService();
+  final _logCacheService = LogCacheService();
+  final _svnService = SvnService();
+  
+  // 缓存的分支点（避免重复查询）
+  int? _cachedBranchPoint;
   
   // 预加载状态
   PreloadProgress _preloadProgress = const PreloadProgress();
@@ -68,6 +74,12 @@ class _MainScreenState extends State<MainScreen> {
     _logFileCacheService.init().catchError((e) {
       AppLogger.ui.error('文件缓存服务初始化失败', e);
     });
+    // 初始化日志缓存服务并设置校验错误回调
+    _logCacheService.init().then((_) {
+      _logCacheService.onValidationError = _handleCacheValidationError;
+    }).catchError((e) {
+      AppLogger.ui.error('日志缓存服务初始化失败', e);
+    });
     // 初始化预加载服务
     _preloadService.init().then((_) {
       _preloadService.onProgressChanged = (progress) {
@@ -75,6 +87,16 @@ class _MainScreenState extends State<MainScreen> {
           setState(() {
             _preloadProgress = progress;
           });
+          
+          // 同步更新 AppState 的缓存总数（让页数实时更新）
+          if (progress.sourceUrl != null && progress.loadedCount > 0) {
+            final appState = Provider.of<AppState>(context, listen: false);
+            appState.updateCachedTotalCount(
+              progress.sourceUrl!,
+              progress.loadedCount,
+              pageSize: appState.pageSize,
+            );
+          }
         }
       };
     }).catchError((e) {
@@ -88,26 +110,106 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  /// 处理缓存校验错误
+  void _handleCacheValidationError(CacheValidationError error) {
+    AppLogger.ui.error('【严重错误】缓存数据库校验失败: ${error.message}');
+    
+    // 在 UI 上显示醒目的错误提示
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.error, color: Colors.red.shade700, size: 28),
+              const SizedBox(width: 8),
+              const Text('严重错误：缓存数据库不匹配'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '检测到缓存数据库与当前 URL 不匹配！',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('期望 URL:\n${error.expectedUrl}'),
+                      const SizedBox(height: 4),
+                      Text('数据库中的 URL:\n${error.actualUrl}'),
+                      const SizedBox(height: 4),
+                      Text('数据库路径:\n${error.dbPath}',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '可能的原因：',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const Text('• Hash 冲突（极少见）'),
+                const Text('• 配置文件被手动修改'),
+                const Text('• 数据库文件被移动或替换'),
+                const SizedBox(height: 12),
+                const Text(
+                  '建议操作：',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const Text('• 删除该数据库文件后重试'),
+                const Text('• 或清空所有缓存后重新加载'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('我知道了'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   /// 从持久化存储加载预加载设置
   Future<void> _loadPreloadSettings() async {
     try {
       final storageService = StorageService();
       final settings = await storageService.getPreloadSettings();
-      if (settings.isNotEmpty && mounted) {
+      final maxRetries = await storageService.getDefaultMaxRetries();
+      if (mounted) {
         setState(() {
-          _preloadSettings = PreloadSettings(
-            enabled: settings['enabled'] as bool? ?? true,
-            stopOnBranchPoint: settings['stop_on_branch_point'] as bool? ?? true,
-            maxDays: settings['max_days'] as int? ?? 90,
-            maxCount: settings['max_count'] as int? ?? 1000,
-            stopRevision: settings['stop_revision'] as int? ?? 0,
-            stopDate: settings['stop_date'] as String?,
-          );
+          if (settings.isNotEmpty) {
+            _preloadSettings = PreloadSettings(
+              enabled: settings['enabled'] as bool? ?? true,
+              stopOnBranchPoint: settings['stop_on_branch_point'] as bool? ?? true,
+              maxDays: settings['max_days'] as int? ?? 90,
+              maxCount: settings['max_count'] as int? ?? 1000,
+              stopRevision: settings['stop_revision'] as int? ?? 0,
+              stopDate: settings['stop_date'] as String?,
+            );
+          }
+          _maxRetries = maxRetries;
         });
-        AppLogger.ui.info('已加载预加载设置: enabled=${_preloadSettings.enabled}, maxDays=${_preloadSettings.maxDays}, maxCount=${_preloadSettings.maxCount}');
+        AppLogger.ui.info('已加载设置: maxRetries=$_maxRetries, preloadEnabled=${_preloadSettings.enabled}, maxDays=${_preloadSettings.maxDays}, maxCount=${_preloadSettings.maxCount}');
       }
     } catch (e, stackTrace) {
-      AppLogger.ui.error('加载预加载设置失败', e, stackTrace);
+      AppLogger.ui.error('加载设置失败', e, stackTrace);
     }
   }
 
@@ -158,33 +260,28 @@ class _MainScreenState extends State<MainScreen> {
 
   /// 自动加载日志（如果条件满足）
   /// 
-  /// 符合设计流程：只请求数据，由数据模块在缓存未命中时自动获取
+  /// 设计：过滤器只负责过滤 db 缓存中的数据
   Future<void> _autoLoadLogsIfPossible() async {
     final sourceUrl = _sourceUrlController.text.trim();
 
-    // 只要有源 URL 就自动请求数据（不主动同步，由数据模块决定是否需要获取）
     if (sourceUrl.isNotEmpty) {
       final appState = Provider.of<AppState>(context, listen: false);
       AppLogger.ui.info('=== 自动加载日志（启动时） ===');
-      AppLogger.ui.info('检测到有效的源 URL，自动请求数据');
       AppLogger.ui.info('  源 URL: $sourceUrl');
-      AppLogger.ui.info('  pageSize: ${appState.pageSize}');
-      AppLogger.ui.info('  说明: 由数据模块检查缓存，缓存未命中时自动获取');
       
       // 获取目标工作副本
       final targetWc = _targetWcController.text.trim();
       
-      // 只请求数据，不主动同步
-      // LogFilterService 会检查缓存是否足够，如果不够会自动调用 LogSyncService
-      // 启动时默认不跨越分支点（stopOnCopy=true）
-      await appState.refreshLogEntries(
-        sourceUrl,
-        stopOnCopy: true,
-        workingDirectory: targetWc.isNotEmpty ? targetWc : null,
-      );
+      // 如果 stopOnCopy=true，先查询分支点
+      int? minRevision;
+      if (_logListStopOnCopy && targetWc.isNotEmpty) {
+        minRevision = await _getBranchPoint(targetWc);
+      }
       
-      // 数据加载完成后，更新合并状态（如果有目标工作副本）
-      // 只记录本程序合并过的记录（不再通过 mergeinfo 检查）
+      // 设置过滤条件并刷新
+      await appState.setMinRevision(minRevision, sourceUrl: sourceUrl);
+      
+      // 更新合并状态
       if (targetWc.isNotEmpty) {
         _updateMergedStatus(sourceUrl, targetWc);
       }
@@ -223,11 +320,7 @@ class _MainScreenState extends State<MainScreen> {
       // 预加载完成后刷新日志列表（如果还在当前页面）
       if (mounted && _preloadProgress.status == PreloadStatus.completed) {
         AppLogger.ui.info('后台预加载完成，刷新日志列表');
-        appState.refreshLogEntries(
-          sourceUrl,
-          stopOnCopy: _logListStopOnCopy,
-          workingDirectory: targetWc.isNotEmpty ? targetWc : null,
-        );
+        appState.refreshLogEntries(sourceUrl);
       }
     }).catchError((e, stackTrace) {
       AppLogger.ui.error('后台预加载失败', e, stackTrace);
@@ -245,10 +338,8 @@ class _MainScreenState extends State<MainScreen> {
       // 检测路径变化，清除缓存
       if (_lastTargetWc != null && _lastTargetWc != result) {
         AppLogger.ui.info('目标工作副本路径已变化: $_lastTargetWc -> $result');
-        AppLogger.ui.info('清除COPY_TAIL和边界标记缓存');
-        LogFilterService.clearTailCache(workingDirectory: _lastTargetWc);
-        LogFilterService.clearBoundaryCache(workingDirectory: _lastTargetWc);
-        LogFilterService.clearBoundaryCache(workingDirectory: _lastTargetWc);
+        _cachedBranchPoint = null;
+        LogFilterService.clearBranchPointCache(workingDirectory: _lastTargetWc);
       }
       _lastTargetWc = result;
       
@@ -259,10 +350,10 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  /// 刷新日志列表（触发分层请求日志）
+  /// 刷新日志列表（纯本地过滤操作）
   /// 
-  /// 符合分级数据请求模式：
-  /// UI -> AppState -> LogFilterService -> LogSyncService (缓存未命中时)
+  /// 新设计：过滤器只负责过滤 db 缓存中的数据，不触发网络请求
+  /// stopOnCopy 通过设置 minRevision 来实现
   Future<void> _refreshLogList(bool stopOnCopy) async {
     final sourceUrl = _sourceUrlController.text.trim();
 
@@ -274,9 +365,8 @@ class _MainScreenState extends State<MainScreen> {
     // 检测路径变化，清除缓存
     if (_lastSourceUrl != null && _lastSourceUrl != sourceUrl) {
       AppLogger.ui.info('源 URL 已变化: $_lastSourceUrl -> $sourceUrl');
-      AppLogger.ui.info('清除ROOT_TAIL缓存');
-        LogFilterService.clearTailCache(sourceUrl: _lastSourceUrl);
-        LogFilterService.clearBoundaryCache(sourceUrl: _lastSourceUrl);
+      _cachedBranchPoint = null; // 清除分支点缓存
+      LogFilterService.clearBranchPointCache(workingDirectory: _lastTargetWc);
     }
     _lastSourceUrl = sourceUrl;
     
@@ -288,8 +378,8 @@ class _MainScreenState extends State<MainScreen> {
     final targetWc = _targetWcController.text.trim();
     if (_lastTargetWc != null && _lastTargetWc != targetWc) {
       AppLogger.ui.info('目标工作副本路径已变化: $_lastTargetWc -> $targetWc');
-      AppLogger.ui.info('清除COPY_TAIL缓存');
-      LogFilterService.clearTailCache(workingDirectory: _lastTargetWc);
+      _cachedBranchPoint = null; // 清除分支点缓存
+      LogFilterService.clearBranchPointCache(workingDirectory: _lastTargetWc);
     }
     _lastTargetWc = targetWc;
 
@@ -297,23 +387,20 @@ class _MainScreenState extends State<MainScreen> {
       AppLogger.ui.info('=== 刷新日志列表 ===');
       AppLogger.ui.info('源 URL: $sourceUrl');
       AppLogger.ui.info('stopOnCopy: $stopOnCopy');
-      AppLogger.ui.info('说明: 由数据模块检查缓存，缓存未命中时自动获取');
+      
+      // 如果 stopOnCopy=true，需要查询分支点
+      int? minRevision;
       if (stopOnCopy && targetWc.isNotEmpty) {
-        AppLogger.ui.info('stopOnCopy=true，将使用目标工作副本路径: $targetWc');
-      } else if (stopOnCopy && targetWc.isEmpty) {
-        AppLogger.ui.warn('stopOnCopy=true 但目标工作副本为空');
+        minRevision = await _getBranchPoint(targetWc);
+        if (minRevision != null) {
+          AppLogger.ui.info('使用分支点过滤: minRevision=r$minRevision');
+        }
       }
-
-      // 请求数据（遵循分级数据请求模式）
-      // AppState -> LogFilterService -> LogSyncService (缓存未命中时)
-      await appState.refreshLogEntries(
-        sourceUrl,
-        stopOnCopy: stopOnCopy,
-        workingDirectory: targetWc.isNotEmpty ? targetWc : null,
-      );
+      
+      // 更新过滤条件（包含 minRevision）
+      await appState.setMinRevision(minRevision, sourceUrl: sourceUrl);
 
       // 更新合并状态（如果有目标工作副本）
-      // 只记录本程序合并过的记录（不再通过 mergeinfo 检查）
       if (targetWc.isNotEmpty) {
         _updateMergedStatus(sourceUrl, targetWc);
       }
@@ -322,6 +409,43 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e, stackTrace) {
       AppLogger.ui.error('刷新日志列表失败', e, stackTrace);
       _showError('刷新日志列表失败：$e');
+    }
+  }
+  
+  /// 获取分支点（带缓存）
+  Future<int?> _getBranchPoint(String workingDirectory) async {
+    // 检查缓存
+    if (_cachedBranchPoint != null) {
+      return _cachedBranchPoint;
+    }
+    
+    // 检查 LogFilterService 的静态缓存
+    final cached = LogFilterService.getCachedBranchPoint(workingDirectory);
+    if (cached != null) {
+      _cachedBranchPoint = cached;
+      return cached;
+    }
+    
+    try {
+      AppLogger.ui.info('查询分支点: $workingDirectory');
+      // 获取分支 URL
+      final branchUrl = await _svnService.getInfo(workingDirectory);
+      // 查询分支点
+      final branchPoint = await _svnService.findBranchPoint(
+        branchUrl,
+        workingDirectory: workingDirectory,
+      );
+      
+      if (branchPoint != null) {
+        AppLogger.ui.info('找到分支点: r$branchPoint');
+        _cachedBranchPoint = branchPoint;
+        LogFilterService.cacheBranchPoint(workingDirectory, branchPoint);
+      }
+      
+      return branchPoint;
+    } catch (e, stackTrace) {
+      AppLogger.ui.error('查询分支点失败', e, stackTrace);
+      return null;
     }
   }
 
@@ -478,14 +602,20 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {}); // 更新 UI
     }
     
+    // 如果 stopOnCopy=true，先查询分支点
+    int? minRevision;
+    if (_logListStopOnCopy && targetWc.isNotEmpty) {
+      minRevision = await _getBranchPoint(targetWc);
+    }
+    
     await appState.setFilter(
       author: authorFilter.isEmpty ? null : authorFilter,
       title: _filterTitleController.text.trim().isEmpty 
           ? null 
           : _filterTitleController.text.trim(),
+      minRevision: minRevision,
+      clearMinRevision: !_logListStopOnCopy,
       sourceUrl: sourceUrl,
-      stopOnCopy: _logListStopOnCopy,
-      workingDirectory: targetWc.isNotEmpty ? targetWc : null,
     );
   }
 
@@ -629,36 +759,8 @@ class _MainScreenState extends State<MainScreen> {
               foregroundColor: Colors.red,
             ),
           ),
-        // 预加载设置按钮
-        const SizedBox(width: 4),
-        IconButton(
-          onPressed: () => _showPreloadSettingsDialog(sourceUrl, targetWc),
-          icon: const Icon(Icons.settings, size: 18),
-          tooltip: '预加载设置',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-        ),
       ],
     );
-  }
-
-  /// 显示预加载设置对话框
-  Future<void> _showPreloadSettingsDialog(String sourceUrl, String targetWc) async {
-    final newSettings = await PreloadSettingsDialog.show(context, _preloadSettings);
-    if (newSettings != null && mounted) {
-      setState(() {
-        _preloadSettings = newSettings;
-      });
-      AppLogger.ui.info('预加载设置已更新: enabled=${newSettings.enabled}, maxDays=${newSettings.maxDays}, maxCount=${newSettings.maxCount}');
-      
-      // 如果启用了预加载且当前没有在加载，自动开始预加载
-      if (newSettings.enabled && 
-          _preloadProgress.status != PreloadStatus.loading &&
-          sourceUrl.isNotEmpty) {
-        final appState = Provider.of<AppState>(context, listen: false);
-        _startBackgroundPreload(sourceUrl, targetWc, appState);
-      }
-    }
   }
 
   /// 加载全部日志到分支点
@@ -682,11 +784,7 @@ class _MainScreenState extends State<MainScreen> {
       // 加载完成后刷新日志列表
       if (mounted) {
         final appState = Provider.of<AppState>(context, listen: false);
-        await appState.refreshLogEntries(
-          sourceUrl,
-          stopOnCopy: _logListStopOnCopy,
-          workingDirectory: targetWc.isEmpty ? null : targetWc,
-        );
+        await appState.refreshLogEntries(sourceUrl);
         
         if (_preloadProgress.status == PreloadStatus.completed) {
           _showSuccess('加载完成: ${_preloadProgress.statusDescription}');
@@ -804,6 +902,33 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  /// 打开设置界面
+  Future<void> _openSettings() async {
+    final result = await SettingsScreen.show(
+      context,
+      currentPreloadSettings: _preloadSettings,
+      currentMaxRetries: _maxRetries,
+    );
+    
+    if (result != null && mounted) {
+      setState(() {
+        _preloadSettings = result.preloadSettings;
+        _maxRetries = result.maxRetries;
+      });
+      AppLogger.ui.info('设置已更新: maxRetries=$_maxRetries, preloadEnabled=${_preloadSettings.enabled}');
+      
+      // 如果启用了预加载且当前没有在加载，自动开始预加载
+      final sourceUrl = _sourceUrlController.text.trim();
+      final targetWc = _targetWcController.text.trim();
+      if (_preloadSettings.enabled && 
+          _preloadProgress.status != PreloadStatus.loading &&
+          sourceUrl.isNotEmpty) {
+        final appState = Provider.of<AppState>(context, listen: false);
+        _startBackgroundPreload(sourceUrl, targetWc, appState);
+      }
+    }
+  }
+
   Widget _buildConfigSection() {
     return Card(
       margin: const EdgeInsets.all(8),
@@ -823,6 +948,16 @@ class _MainScreenState extends State<MainScreen> {
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 设置按钮
+                IconButton(
+                  onPressed: _openSettings,
+                  icon: const Icon(Icons.settings),
+                  tooltip: '设置',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.grey.shade100,
                   ),
                 ),
               ],
@@ -846,39 +981,6 @@ class _MainScreenState extends State<MainScreen> {
                 ElevatedButton(
                   onPressed: _pickTargetWc,
                   child: const Text('选择目录...'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // 设置行 - 使用 Wrap 避免溢出
-            Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                // 最大重试次数
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('最大重试次数:'),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 80,
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                        ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (value) {
-                          _maxRetries = int.tryParse(value) ?? 5;
-                        },
-                        controller: TextEditingController(text: _maxRetries.toString()),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -1195,27 +1297,14 @@ class _MainScreenState extends State<MainScreen> {
                               IconButton(
                                 icon: const Icon(Icons.first_page),
                                 onPressed: (appState.currentPage > 0 && !appState.isLoadingData)
-                                    ? () async => await appState.setCurrentPage(
-                                          0,
-                                          sourceUrl: sourceUrl,
-                                          stopOnCopy: _logListStopOnCopy,
-                                          workingDirectory: _targetWcController.text.trim().isNotEmpty
-                                              ? _targetWcController.text.trim()
-                                              : null,
-                                        )
+                                    ? () async => await appState.setCurrentPage(0, sourceUrl: sourceUrl)
                                     : null,
                                 tooltip: '第一页',
                               ),
                               IconButton(
                                 icon: const Icon(Icons.chevron_left),
                                 onPressed: (appState.currentPage > 0 && !appState.isLoadingData)
-                                    ? () async => await appState.previousPage(
-                                          sourceUrl: sourceUrl,
-                                          stopOnCopy: _logListStopOnCopy,
-                                          workingDirectory: _targetWcController.text.trim().isNotEmpty
-                                              ? _targetWcController.text.trim()
-                                              : null,
-                                        )
+                                    ? () async => await appState.previousPage(sourceUrl: sourceUrl)
                                     : null,
                                 tooltip: '上一页',
                               ),
@@ -1225,7 +1314,9 @@ class _MainScreenState extends State<MainScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '第 ${appState.currentPage + 1} 页',
+                                      appState.totalPages > 0
+                                          ? '第 ${appState.currentPage + 1} / ${appState.totalPages} 页'
+                                          : '第 ${appState.currentPage + 1} 页',
                                       style: const TextStyle(fontSize: 12),
                                     ),
                                     if (appState.isLoadingData) ...[
@@ -1243,17 +1334,25 @@ class _MainScreenState extends State<MainScreen> {
                                 icon: const Icon(Icons.chevron_right),
                                 // 如果还有更多数据且不在加载中，才允许翻到下一页
                                 onPressed: (appState.hasMore && !appState.isLoadingData)
-                                    ? () async => await appState.nextPage(
-                                          sourceUrl: sourceUrl,
-                                          stopOnCopy: _logListStopOnCopy,
-                                          workingDirectory: _targetWcController.text.trim().isNotEmpty
-                                              ? _targetWcController.text.trim()
-                                              : null,
-                                        )
+                                    ? () async => await appState.nextPage(sourceUrl: sourceUrl)
                                     : null,
                                 tooltip: '下一页',
                               ),
-                              // 移除"最后一页"按钮，因为不知道总共有多少页
+                              // 最后一页按钮（跳转到当前缓存的最后一页）
+                              IconButton(
+                                icon: const Icon(Icons.last_page),
+                                // 只有当有数据且不在最后一页时才启用
+                                onPressed: (appState.totalPages > 0 && 
+                                           appState.currentPage < appState.totalPages - 1 && 
+                                           !appState.isLoadingData)
+                                    ? () async {
+                                        // 直接跳转到最后一页（页码从0开始）
+                                        final lastPage = appState.totalPages - 1;
+                                        await appState.setCurrentPage(lastPage, sourceUrl: sourceUrl);
+                                      }
+                                    : null,
+                                tooltip: '最后一页',
+                              ),
                               const SizedBox(width: 16),
                               // 每页条数输入框（允许用户修改）
                               Row(
@@ -1273,21 +1372,14 @@ class _MainScreenState extends State<MainScreen> {
                                       keyboardType: TextInputType.number,
                                       style: const TextStyle(fontSize: 12),
                                       enabled: !appState.isLoadingData,
-                                      onSubmitted: appState.isLoadingData
+                                              onSubmitted: appState.isLoadingData
                                           ? null
                                           : (value) {
                                               final newPageSize = int.tryParse(value);
                                               if (newPageSize != null && newPageSize > 0) {
                                                 appState.setPageSize(newPageSize);
                                                 // 修改页数后重置到第一页
-                                                appState.setCurrentPage(
-                                                  0,
-                                                  sourceUrl: _sourceUrlController.text.trim(),
-                                                  stopOnCopy: _logListStopOnCopy,
-                                                  workingDirectory: _targetWcController.text.trim().isNotEmpty
-                                                      ? _targetWcController.text.trim()
-                                                      : null,
-                                                );
+                                                appState.setCurrentPage(0, sourceUrl: _sourceUrlController.text.trim());
                                               } else {
                                                 // 恢复原值
                                                 _pageSizeController.text = appState.pageSize.toString();

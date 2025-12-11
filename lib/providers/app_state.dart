@@ -31,19 +31,23 @@ class AppState extends ChangeNotifier {
   int _currentPage = 0;
   int _pageSize = 50;
   
-  // 过滤条件
+  // 过滤条件（包含 author、title、minRevision）
   LogFilter _filter = const LogFilter();
   
   // 当前分页结果
   PaginatedResult? _paginatedResult;
   
-  // 日志过滤服务
+  // 独立维护的总数和总页数（用于预加载时同步更新）
+  int _cachedTotalCount = 0;
+  int _cachedTotalPages = 0;
+  
+  // 日志过滤服务（纯本地操作，不触发网络请求）
   final LogFilterService _filterService = LogFilterService();
   
   bool _isInitialized = false;
   bool _isLoading = false;
   String? _error;
-  bool _isLoadingData = false; // 是否正在从 SVN 获取数据
+  bool _isLoadingData = false; // 是否正在从 SVN 获取数据（由外部设置）
 
   // Getters
   AppConfig? get config => _config;
@@ -65,20 +69,37 @@ class AppState extends ChangeNotifier {
   /// 获取当前页的日志条目
   List<LogEntry> get paginatedLogEntries => _paginatedResult?.entries ?? [];
   
-  /// 获取总页数（-1 表示未知）
-  int get totalPages => _paginatedResult?.totalPages ?? -1;
+  /// 获取总页数（优先使用 _paginatedResult，否则使用缓存值）
+  int get totalPages => _paginatedResult?.totalPages ?? _cachedTotalPages;
   
   /// 是否还有更多数据（可以翻到下一页）
-  bool get hasMore => _paginatedResult?.hasMore ?? false;
+  bool get hasMore => _paginatedResult?.hasMore ?? (currentPage < totalPages - 1);
   
-  /// 获取过滤后的总数（-1 表示未知）
-  int get filteredTotalCount => _paginatedResult?.totalCount ?? -1;
+  /// 获取过滤后的总数（优先使用 _paginatedResult，否则使用缓存值）
+  int get filteredTotalCount => _paginatedResult?.totalCount ?? _cachedTotalCount;
   
   /// 是否有总页数信息
-  bool get hasTotalPages => totalPages >= 0;
+  bool get hasTotalPages => totalPages > 0;
   
   /// 是否有总数信息
-  bool get hasTotalCount => filteredTotalCount >= 0;
+  bool get hasTotalCount => filteredTotalCount > 0;
+  
+  /// 更新缓存的总数（供预加载服务调用）
+  /// 
+  /// [sourceUrl] 源 URL（用于验证是否是当前显示的数据源）
+  /// [totalCount] 新的总数
+  /// [pageSize] 每页大小（用于计算总页数）
+  void updateCachedTotalCount(String sourceUrl, int totalCount, {int? pageSize}) {
+    // 只有当前显示的数据源才更新
+    if (_lastSourceUrl == sourceUrl || _lastSourceUrl == null) {
+      _cachedTotalCount = totalCount;
+      final effectivePageSize = pageSize ?? _pageSize;
+      _cachedTotalPages = totalCount > 0 
+          ? ((totalCount - 1) / effectivePageSize).floor() + 1 
+          : 0;
+      notifyListeners();
+    }
+  }
 
   /// 根据 revision 列表获取日志条目
   /// 
@@ -132,50 +153,27 @@ class AppState extends ChangeNotifier {
   /// 刷新日志列表（从缓存读取并应用过滤和分页）
   /// 
   /// [sourceUrl] 源 URL
-  /// [stopOnCopy] 是否在遇到拷贝/分支点时停止（用于自动获取更多数据）
-  /// [workingDirectory] 工作目录（用于 stopOnCopy）
   /// 
-  /// 注意：如果请求的数据范围超过缓存范围，会自动从 SVN 获取更多数据
-  /// 持续获取直到满足需求或遇到 stopOnCopy 或没有更多数据
-  Future<void> refreshLogEntries(
-    String sourceUrl, {
-    bool stopOnCopy = false,
-    String? workingDirectory,
-  }) async {
+  /// 注意：此方法只从缓存读取数据，不触发任何网络请求
+  /// 过滤条件（包括 minRevision）已经在 _filter 中设置
+  Future<void> refreshLogEntries(String sourceUrl) async {
     try {
-      // 获取配置中的 fetchLimit（每次从 SVN 获取的最大条数）
-      final fetchLimit = _config?.settings.svnLogLimit ?? 200;
-      
-      // 设置数据加载回调，用于锁定/解锁 UI
-      _filterService.setOnDataLoadingCallback((isLoading) {
-        if (_isLoadingData != isLoading) {
-          _isLoadingData = isLoading;
-          notifyListeners();
-        }
-      });
-      
       _paginatedResult = await _filterService.getPaginatedEntries(
         sourceUrl,
         _filter,
         _currentPage,
         _pageSize,
-        stopOnCopy: stopOnCopy,
-        workingDirectory: workingDirectory,
-        fetchLimit: fetchLimit,
       );
       
-      // 确保加载状态被清除
-      if (_isLoadingData) {
-        _isLoadingData = false;
+      // 同步更新缓存的总数和总页数
+      if (_paginatedResult != null) {
+        _cachedTotalCount = _paginatedResult!.totalCount;
+        _cachedTotalPages = _paginatedResult!.totalPages;
       }
+      
       notifyListeners();
     } catch (e, stackTrace) {
       AppLogger.app.error('刷新日志列表失败', e, stackTrace);
-      // 确保加载状态被清除
-      if (_isLoadingData) {
-        _isLoadingData = false;
-        notifyListeners();
-      }
     }
   }
 
@@ -183,26 +181,48 @@ class AppState extends ChangeNotifier {
   /// 
   /// [author] 作者过滤
   /// [title] 标题过滤
+  /// [minRevision] 最小版本号（用于 stopOnCopy 过滤）
   /// [sourceUrl] 源 URL（如果提供，会刷新日志列表）
-  /// [stopOnCopy] 是否在遇到拷贝/分支点时停止（用于自动获取更多数据）
-  /// [workingDirectory] 工作目录（用于 stopOnCopy）
   Future<void> setFilter({
     String? author,
     String? title,
+    int? minRevision,
+    bool clearMinRevision = false,
     String? sourceUrl,
-    bool stopOnCopy = false,
-    String? workingDirectory,
   }) async {
-    _filter = LogFilter(author: author, title: title);
+    _filter = LogFilter(
+      author: author, 
+      title: title,
+      minRevision: clearMinRevision ? null : minRevision,
+    );
     _currentPage = 0; // 重置到第一页
     
     if (sourceUrl != null && sourceUrl.isNotEmpty) {
-      await refreshLogEntries(
-        sourceUrl,
-        stopOnCopy: stopOnCopy,
-        workingDirectory: workingDirectory,
-      );
+      await refreshLogEntries(sourceUrl);
     } else {
+      notifyListeners();
+    }
+  }
+  
+  /// 更新 minRevision（保留其他过滤条件）
+  Future<void> setMinRevision(int? minRevision, {String? sourceUrl}) async {
+    _filter = _filter.copyWith(
+      minRevision: minRevision,
+      clearMinRevision: minRevision == null,
+    );
+    _currentPage = 0; // 重置到第一页
+    
+    if (sourceUrl != null && sourceUrl.isNotEmpty) {
+      await refreshLogEntries(sourceUrl);
+    } else {
+      notifyListeners();
+    }
+  }
+  
+  /// 设置数据加载状态（供外部调用）
+  void setLoadingData(bool isLoading) {
+    if (_isLoadingData != isLoading) {
+      _isLoadingData = isLoading;
       notifyListeners();
     }
   }
@@ -257,42 +277,22 @@ class AppState extends ChangeNotifier {
   }
   
   /// 设置当前页
-  Future<void> setCurrentPage(
-    int page, {
-    String? sourceUrl,
-    bool stopOnCopy = false,
-    String? workingDirectory,
-  }) async {
-    // 不再限制最大页码，允许任意页码
+  Future<void> setCurrentPage(int page, {String? sourceUrl}) async {
     _currentPage = page.clamp(0, 999999);
     
     if (sourceUrl != null && sourceUrl.isNotEmpty) {
-      await refreshLogEntries(
-        sourceUrl,
-        stopOnCopy: stopOnCopy,
-        workingDirectory: workingDirectory,
-      );
+      await refreshLogEntries(sourceUrl);
     } else {
       notifyListeners();
     }
   }
   
   /// 下一页
-  /// 注意：根据 hasMore 来判断是否可以翻页
-  Future<void> nextPage({
-    String? sourceUrl,
-    bool stopOnCopy = false,
-    String? workingDirectory,
-  }) async {
-    // 如果还有更多数据，才允许翻页
+  Future<void> nextPage({String? sourceUrl}) async {
     if (hasMore) {
       _currentPage++;
       if (sourceUrl != null && sourceUrl.isNotEmpty) {
-        await refreshLogEntries(
-          sourceUrl,
-          stopOnCopy: stopOnCopy,
-          workingDirectory: workingDirectory,
-        );
+        await refreshLogEntries(sourceUrl);
       } else {
         notifyListeners();
       }
@@ -300,19 +300,11 @@ class AppState extends ChangeNotifier {
   }
   
   /// 上一页
-  Future<void> previousPage({
-    String? sourceUrl,
-    bool stopOnCopy = false,
-    String? workingDirectory,
-  }) async {
+  Future<void> previousPage({String? sourceUrl}) async {
     if (_currentPage > 0) {
       _currentPage--;
       if (sourceUrl != null && sourceUrl.isNotEmpty) {
-        await refreshLogEntries(
-          sourceUrl,
-          stopOnCopy: stopOnCopy,
-          workingDirectory: workingDirectory,
-        );
+        await refreshLogEntries(sourceUrl);
       } else {
         notifyListeners();
       }

@@ -72,6 +72,9 @@ class PreloadProgress {
   
   /// 错误信息（如果有）
   final String? errorMessage;
+  
+  /// 当前加载的源 URL
+  final String? sourceUrl;
 
   const PreloadProgress({
     this.status = PreloadStatus.idle,
@@ -81,6 +84,7 @@ class PreloadProgress {
     this.earliestRevision,
     this.branchPoint,
     this.errorMessage,
+    this.sourceUrl,
   });
 
   PreloadProgress copyWith({
@@ -91,6 +95,7 @@ class PreloadProgress {
     int? earliestRevision,
     int? branchPoint,
     String? errorMessage,
+    String? sourceUrl,
   }) {
     return PreloadProgress(
       status: status ?? this.status,
@@ -100,6 +105,7 @@ class PreloadProgress {
       earliestRevision: earliestRevision ?? this.earliestRevision,
       branchPoint: branchPoint ?? this.branchPoint,
       errorMessage: errorMessage ?? this.errorMessage,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
     );
   }
   
@@ -204,6 +210,7 @@ class PreloadService {
     _updateProgress(_progress.copyWith(
       status: PreloadStatus.loading,
       stopReason: PreloadStopReason.none,
+      sourceUrl: sourceUrl,
     ));
     
     try {
