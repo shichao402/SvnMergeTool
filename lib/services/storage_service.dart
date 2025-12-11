@@ -247,70 +247,95 @@ class StorageService {
 
   // ===== 预加载设置 =====
 
-  /// 获取预加载设置
+  /// 获取预加载设置（扁平化存储，不再使用嵌套 JSON）
   Future<Map<String, dynamic>> getPreloadSettings() async {
     await _ensureInit();
-    final json = _prefs!.getString('preload_settings');
-    if (json == null) {
-      return {};
-    }
-    try {
-      return jsonDecode(json) as Map<String, dynamic>;
-    } catch (e) {
-      AppLogger.storage.warn('解析预加载设置失败: $e');
-      return {};
-    }
+    return {
+      'enabled': _prefs!.getBool('preload_enabled') ?? true,
+      'stop_on_branch_point': _prefs!.getBool('preload_stop_on_branch_point') ?? true,
+      'max_days': _prefs!.getInt('preload_max_days') ?? 90,
+      'max_count': _prefs!.getInt('preload_max_count') ?? 1000,
+      'stop_revision': _prefs!.getInt('preload_stop_revision') ?? 0,
+      'stop_date': _prefs!.getString('preload_stop_date'),
+    };
   }
 
-  /// 保存预加载设置
+  /// 保存预加载设置（扁平化存储，不再使用嵌套 JSON）
   Future<void> savePreloadSettings(Map<String, dynamic> settings) async {
     await _ensureInit();
-    final json = jsonEncode(settings);
-    await _prefs!.setString('preload_settings', json);
+    
+    if (settings.containsKey('enabled')) {
+      await _prefs!.setBool('preload_enabled', settings['enabled'] as bool);
+    }
+    if (settings.containsKey('stop_on_branch_point')) {
+      await _prefs!.setBool('preload_stop_on_branch_point', settings['stop_on_branch_point'] as bool);
+    }
+    if (settings.containsKey('max_days')) {
+      await _prefs!.setInt('preload_max_days', settings['max_days'] as int);
+    }
+    if (settings.containsKey('max_count')) {
+      await _prefs!.setInt('preload_max_count', settings['max_count'] as int);
+    }
+    if (settings.containsKey('stop_revision')) {
+      await _prefs!.setInt('preload_stop_revision', settings['stop_revision'] as int);
+    }
+    if (settings.containsKey('stop_date')) {
+      final stopDate = settings['stop_date'];
+      if (stopDate != null) {
+        await _prefs!.setString('preload_stop_date', stopDate as String);
+      } else {
+        await _prefs!.remove('preload_stop_date');
+      }
+    }
+    
+    // 清理旧的嵌套 JSON 格式数据（如果存在）
+    if (_prefs!.containsKey('preload_settings')) {
+      await _prefs!.remove('preload_settings');
+    }
+    
     AppLogger.storage.info('已保存预加载设置');
   }
 
   /// 获取预加载是否启用
   Future<bool> getPreloadEnabled() async {
-    final settings = await getPreloadSettings();
-    return settings['enabled'] as bool? ?? true;
+    await _ensureInit();
+    return _prefs!.getBool('preload_enabled') ?? true;
   }
 
   /// 保存预加载是否启用
   Future<void> savePreloadEnabled(bool enabled) async {
-    final settings = await getPreloadSettings();
-    settings['enabled'] = enabled;
-    await savePreloadSettings(settings);
+    await _ensureInit();
+    await _prefs!.setBool('preload_enabled', enabled);
   }
 
   /// 获取预加载停止条件：到达分支点
   Future<bool> getPreloadStopOnBranchPoint() async {
-    final settings = await getPreloadSettings();
-    return settings['stop_on_branch_point'] as bool? ?? true;
+    await _ensureInit();
+    return _prefs!.getBool('preload_stop_on_branch_point') ?? true;
   }
 
   /// 获取预加载停止条件：天数限制
   Future<int> getPreloadMaxDays() async {
-    final settings = await getPreloadSettings();
-    return settings['max_days'] as int? ?? 90;
+    await _ensureInit();
+    return _prefs!.getInt('preload_max_days') ?? 90;
   }
 
   /// 获取预加载停止条件：条数限制
   Future<int> getPreloadMaxCount() async {
-    final settings = await getPreloadSettings();
-    return settings['max_count'] as int? ?? 1000;
+    await _ensureInit();
+    return _prefs!.getInt('preload_max_count') ?? 1000;
   }
 
   /// 获取预加载停止条件：指定版本
   Future<int> getPreloadStopRevision() async {
-    final settings = await getPreloadSettings();
-    return settings['stop_revision'] as int? ?? 0;
+    await _ensureInit();
+    return _prefs!.getInt('preload_stop_revision') ?? 0;
   }
 
   /// 获取预加载停止条件：指定日期
   Future<String?> getPreloadStopDate() async {
-    final settings = await getPreloadSettings();
-    return settings['stop_date'] as String?;
+    await _ensureInit();
+    return _prefs!.getString('preload_stop_date');
   }
 
   // ===== 私有方法 =====

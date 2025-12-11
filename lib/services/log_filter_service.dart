@@ -1,13 +1,14 @@
 /// 日志过滤和分页服务
 ///
 /// 独立模块，负责处理日志的过滤和分页逻辑
-/// - 从缓存读取数据
+/// - 从缓存读取数据（只使用最新区间的数据）
 /// - 应用过滤条件（作者、标题）
 /// - 处理分页逻辑
 /// - 不依赖 UI，纯业务逻辑
 /// 
 /// 重要设计原则：
 /// - 过滤器只负责过滤 db 缓存中的数据
+/// - 只展示最新区间内的数据
 /// - 不触发任何网络请求
 /// - 分支点过滤使用缓存的 minRevision 参数
 
@@ -92,7 +93,9 @@ class LogFilterService {
   /// 
   /// 返回分页结果
   /// 
-  /// 注意：此方法只从缓存读取数据，不触发任何网络请求
+  /// 注意：
+  /// - 此方法只从缓存读取数据，不触发任何网络请求
+  /// - 只展示最新区间内的数据
   Future<PaginatedResult> getPaginatedEntries(
     String sourceUrl,
     LogFilter filter,
@@ -101,7 +104,7 @@ class LogFilterService {
   ) async {
     try {
       AppLogger.storage.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      AppLogger.storage.info('【过滤服务】获取分页数据（纯本地操作）');
+      AppLogger.storage.info('【过滤服务】获取分页数据（只使用最新区间）');
       AppLogger.storage.info('  源 URL: $sourceUrl');
       AppLogger.storage.info('  页码: $page, 每页: $pageSize');
       AppLogger.storage.info('  过滤条件: $filter');
@@ -109,15 +112,15 @@ class LogFilterService {
       // 初始化缓存服务
       await _cacheService.init();
 
-      // 1. 获取符合过滤条件的总数
-      final totalCount = await _cacheService.getEntryCount(
+      // 1. 获取符合过滤条件的总数（只统计最新区间内的数据）
+      final totalCount = await _cacheService.getEntryCountInLatestRange(
         sourceUrl,
         authorFilter: filter.author,
         titleFilter: filter.title,
         minRevision: filter.minRevision,
       );
       
-      AppLogger.storage.info('  符合条件的总数: $totalCount');
+      AppLogger.storage.info('  最新区间内符合条件的总数: $totalCount');
       
       // 2. 计算总页数
       final totalPages = totalCount > 0 
@@ -136,8 +139,8 @@ class LogFilterService {
       // 4. 计算 offset
       final offset = adjustedPage * pageSize;
       
-      // 5. 从缓存获取当前页数据
-      final entries = await _cacheService.getEntries(
+      // 5. 从缓存获取当前页数据（只获取最新区间内的数据）
+      final entries = await _cacheService.getEntriesInLatestRange(
         sourceUrl,
         limit: pageSize,
         offset: offset,
@@ -174,13 +177,15 @@ class LogFilterService {
   }
 
   /// 获取过滤后的总数（不返回具体条目，只返回数量）
+  /// 
+  /// 注意：只统计最新区间内的数据
   Future<int> getFilteredCount(
     String sourceUrl,
     LogFilter filter,
   ) async {
     try {
       await _cacheService.init();
-      return await _cacheService.getEntryCount(
+      return await _cacheService.getEntryCountInLatestRange(
         sourceUrl,
         authorFilter: filter.author,
         titleFilter: filter.title,
@@ -218,9 +223,11 @@ class LogFilterService {
   }
 
   /// 获取缓存中的总条目数（不带过滤）
+  /// 
+  /// 注意：只统计最新区间内的数据
   Future<int> getTotalCount(String sourceUrl) async {
     await _cacheService.init();
-    return await _cacheService.getEntryCount(sourceUrl);
+    return await _cacheService.getLatestRangeEntryCount(sourceUrl);
   }
 
   /// 根据 revision 列表获取日志条目

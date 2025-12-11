@@ -7,6 +7,7 @@
 /// - 支持多种停止条件（分支点、天数、条数、版本、日期）
 /// - 提供加载进度回调
 /// - 支持手动触发"加载全部到分支点"
+/// - 使用区间管理：每次启动从 HEAD 开始
 
 import 'dart:async';
 import '../models/app_config.dart';
@@ -214,10 +215,23 @@ class PreloadService {
     ));
     
     try {
-      // 获取当前缓存状态
-      final totalCount = await _cacheService.getTotalCount(sourceUrl);
-      final earliestRevision = await _cacheService.getEarliestRevision(sourceUrl);
-      final earliestDate = await _cacheService.getEarliestDate(sourceUrl);
+      // 【重要】首先从 HEAD 同步新数据（使用新的 syncFromHead 方法）
+      AppLogger.preload.info('  步骤1: 从 HEAD 同步新数据...');
+      final newDataCount = await _syncService.syncFromHead(
+        sourceUrl: sourceUrl,
+        limit: fetchLimit,
+        workingDirectory: workingDirectory,
+      );
+      if (newDataCount > 0) {
+        AppLogger.preload.info('  从 HEAD 获取了 $newDataCount 条新数据');
+      } else {
+        AppLogger.preload.info('  没有新数据');
+      }
+      
+      // 获取当前缓存状态（使用最新区间）
+      final totalCount = await _cacheService.getLatestRangeEntryCount(sourceUrl);
+      final earliestRevision = await _cacheService.getEarliestRevisionInLatestRange(sourceUrl);
+      final earliestDate = await _cacheService.getEarliestDateInLatestRange(sourceUrl);
       
       _updateProgress(_progress.copyWith(
         loadedCount: totalCount,
@@ -225,10 +239,13 @@ class PreloadService {
         earliestDate: earliestDate,
       ));
       
-      AppLogger.preload.info('  当前缓存: $totalCount 条');
+      AppLogger.preload.info('  当前最新区间缓存: $totalCount 条');
       if (earliestRevision > 0) {
         AppLogger.preload.info('  最早版本: r$earliestRevision');
       }
+      
+      // 步骤2: 继续加载更旧的数据
+      AppLogger.preload.info('  步骤2: 继续加载更旧的数据...');
       
       // 计算停止条件
       final now = DateTime.now();
@@ -276,10 +293,10 @@ class PreloadService {
           break;
         }
         
-        // 更新进度
-        final updatedCount = await _cacheService.getTotalCount(sourceUrl);
-        final updatedEarliestRev = await _cacheService.getEarliestRevision(sourceUrl);
-        final updatedEarliestDate = await _cacheService.getEarliestDate(sourceUrl);
+        // 更新进度（使用最新区间的统计）
+        final updatedCount = await _cacheService.getLatestRangeEntryCount(sourceUrl);
+        final updatedEarliestRev = await _cacheService.getEarliestRevisionInLatestRange(sourceUrl);
+        final updatedEarliestDate = await _cacheService.getEarliestDateInLatestRange(sourceUrl);
         
         _updateProgress(_progress.copyWith(
           loadedCount: updatedCount,
@@ -321,10 +338,10 @@ class PreloadService {
     DateTime? daysLimitDate,
     DateTime? stopDate,
   }) async {
-    // 获取当前缓存状态
-    final totalCount = await _cacheService.getTotalCount(sourceUrl);
-    final earliestRevision = await _cacheService.getEarliestRevision(sourceUrl);
-    final earliestDate = await _cacheService.getEarliestDate(sourceUrl);
+    // 获取当前缓存状态（使用最新区间的统计）
+    final totalCount = await _cacheService.getLatestRangeEntryCount(sourceUrl);
+    final earliestRevision = await _cacheService.getEarliestRevisionInLatestRange(sourceUrl);
+    final earliestDate = await _cacheService.getEarliestDateInLatestRange(sourceUrl);
     
     // 1. 检查条数限制
     if (settings.maxCount > 0 && totalCount >= settings.maxCount) {

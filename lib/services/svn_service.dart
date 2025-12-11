@@ -14,7 +14,6 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:process_run/shell.dart';
 import 'logger_service.dart';
 import 'svn_xml_parser.dart';
@@ -27,12 +26,6 @@ class SvnService {
 
   /// Shell 实例
   Shell? _shell;
-  
-  /// SVN 配置目录（用于隔离系统 SVN 配置）
-  String? _svnConfigDir;
-  
-  /// 获取 SVN 配置目录
-  String? get configDir => _svnConfigDir;
 
   /// 日志回调
   Function(String)? onLog;
@@ -70,10 +63,6 @@ class SvnService {
 
   /// 初始化服务
   Future<void> init() async {
-    final appDir = await getApplicationSupportDirectory();
-    _svnConfigDir = '${appDir.path}/svn_config';
-    await Directory(_svnConfigDir!).create(recursive: true);
-    
     _shell = Shell(
       throwOnError: false,
       commandVerbose: false,

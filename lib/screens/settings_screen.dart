@@ -192,14 +192,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           tooltip: '取消',
         ),
         actions: [
-          TextButton.icon(
+          FilledButton.icon(
             onPressed: _save,
             icon: const Icon(Icons.save),
             label: const Text('保存'),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Theme.of(context).primaryColor,
             ),
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(

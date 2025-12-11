@@ -449,25 +449,47 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  /// 更新合并状态（从 MergeState 获取）
+  /// 更新合并状态（从 SVN mergeinfo 和 MergeState 获取）
   /// 
-  /// 只记录本程序合并过的记录（不再通过 mergeinfo 检查）
-  void _updateMergedStatus(
+  /// 同时检查：
+  /// 1. SVN 上已经合并过的记录（通过 svn mergeinfo 命令）
+  /// 2. 本程序合并过的记录（从 MergeState 获取）
+  Future<void> _updateMergedStatus(
     String sourceUrl,
     String targetWc,
-  ) {
+  ) async {
     if (targetWc.isEmpty) return;
     
     try {
       final appState = Provider.of<AppState>(context, listen: false);
       final mergeState = Provider.of<MergeState>(context, listen: false);
       
-      // 从 MergeState 获取已完成的合并记录
+      // 1. 从 MergeState 获取本程序已完成的合并记录
       appState.updateMergedStatusFromMergeState(
         mergeState,
         sourceUrl: sourceUrl,
         targetWc: targetWc,
       );
+      
+      // 2. 从 SVN mergeinfo 获取所有已合并的记录
+      // 获取当前页面显示的所有 revision
+      final currentRevisions = appState.paginatedLogEntries.map((e) => e.revision).toList();
+      if (currentRevisions.isEmpty) return;
+      
+      AppLogger.ui.info('正在检查 ${currentRevisions.length} 个 revision 的 SVN 合并状态...');
+      
+      final svnMergedStatus = await _svnService.checkMergedStatus(
+        sourceUrl: sourceUrl,
+        revisions: currentRevisions,
+        targetWc: targetWc,
+      );
+      
+      // 合并 SVN mergeinfo 的结果到 appState
+      if (svnMergedStatus.isNotEmpty) {
+        final mergedCount = svnMergedStatus.values.where((v) => v).length;
+        AppLogger.ui.info('SVN mergeinfo 检测到 $mergedCount 个已合并的 revision');
+        appState.addMergedStatus(svnMergedStatus);
+      }
     } catch (e, stackTrace) {
       AppLogger.ui.error('更新合并状态失败', e, stackTrace);
     }
@@ -930,6 +952,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildConfigSection() {
+    final appState = Provider.of<AppState>(context, listen: false);
+    
     return Card(
       margin: const EdgeInsets.all(8),
       child: Padding(
@@ -942,12 +966,10 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 const SizedBox(width: 100, child: Text('源 URL:')),
                 Expanded(
-                  child: TextField(
+                  child: _buildAutocompleteTextField(
                     controller: _sourceUrlController,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    history: appState.sourceUrlHistory,
+                    hintText: '输入或选择源 URL',
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -969,12 +991,10 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 const SizedBox(width: 100, child: Text('目标工作副本:')),
                 Expanded(
-                  child: TextField(
+                  child: _buildAutocompleteTextField(
                     controller: _targetWcController,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    history: appState.targetWcHistory,
+                    hintText: '输入或选择目标工作副本',
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -987,6 +1007,108 @@ class _MainScreenState extends State<MainScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// 构建带历史记录下拉的文本输入框
+  Widget _buildAutocompleteTextField({
+    required TextEditingController controller,
+    required List<String> history,
+    String? hintText,
+  }) {
+    return Autocomplete<String>(
+      optionsBuilder: (TextEditingValue textEditingValue) {
+        if (history.isEmpty) {
+          return const Iterable<String>.empty();
+        }
+        // 如果输入为空，显示所有历史记录
+        if (textEditingValue.text.isEmpty) {
+          return history;
+        }
+        // 否则过滤匹配的历史记录
+        return history.where((String option) {
+          return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+        });
+      },
+      onSelected: (String selection) {
+        controller.text = selection;
+      },
+      fieldViewBuilder: (
+        BuildContext context,
+        TextEditingController fieldController,
+        FocusNode focusNode,
+        VoidCallback onFieldSubmitted,
+      ) {
+        // 同步外部 controller 的值到 fieldController
+        if (fieldController.text != controller.text) {
+          fieldController.text = controller.text;
+        }
+        // 监听 fieldController 的变化，同步到外部 controller
+        fieldController.addListener(() {
+          if (controller.text != fieldController.text) {
+            controller.text = fieldController.text;
+          }
+        });
+        
+        return TextField(
+          controller: fieldController,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            isDense: true,
+            hintText: hintText,
+            suffixIcon: history.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.arrow_drop_down, size: 20),
+                    onPressed: () {
+                      // 触发显示下拉选项
+                      focusNode.requestFocus();
+                      fieldController.selection = TextSelection(
+                        baseOffset: 0,
+                        extentOffset: fieldController.text.length,
+                      );
+                    },
+                    tooltip: '显示历史记录',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  )
+                : null,
+          ),
+          onSubmitted: (_) => onFieldSubmitted(),
+        );
+      },
+      optionsViewBuilder: (
+        BuildContext context,
+        AutocompleteOnSelected<String> onSelected,
+        Iterable<String> options,
+      ) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200, maxWidth: 600),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (BuildContext context, int index) {
+                  final String option = options.elementAt(index);
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      option,
+                      style: const TextStyle(fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => onSelected(option),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -263,6 +263,14 @@ class AppState extends ChangeNotifier {
     }
   }
   
+  /// 添加合并状态（从 SVN mergeinfo 获取）
+  /// 
+  /// [status] 合并状态 Map，key 是 revision，value 是是否已合并
+  void addMergedStatus(Map<int, bool> status) {
+    _mergedStatus.addAll(status);
+    notifyListeners();
+  }
+  
   /// 设置分页大小
   /// 
   /// [size] 新的分页大小（必须大于0）

@@ -18,6 +18,57 @@ import 'package:path/path.dart' as path;
 import '../models/log_entry.dart';
 import 'logger_service.dart';
 
+/// 缓存的版本区间
+/// 
+/// 表示一段连续缓存的 SVN 日志版本范围
+/// [startRevision] 是较大的版本号（新），[endRevision] 是较小的版本号（旧）
+class CachedRange {
+  final int id;
+  final int startRevision;  // 区间起点（较大值，新）
+  final int endRevision;    // 区间终点（较小值，旧）
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  CachedRange({
+    required this.id,
+    required this.startRevision,
+    required this.endRevision,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// 检查是否与另一个区间连续（首尾相同才算连续）
+  /// 
+  /// 例如：[200, 100] 和 [100, 50] 是连续的，因为 100 == 100
+  /// 但是：[200, 101] 和 [100, 50] 不是连续的，不能用 +1 判断
+  bool isContinuousWith(CachedRange other) {
+    return endRevision == other.startRevision || 
+           other.endRevision == startRevision;
+  }
+
+  /// 合并两个连续的区间
+  CachedRange mergeWith(CachedRange other) {
+    if (!isContinuousWith(other)) {
+      throw ArgumentError('区间不连续，无法合并');
+    }
+    final newStart = startRevision > other.startRevision ? startRevision : other.startRevision;
+    final newEnd = endRevision < other.endRevision ? endRevision : other.endRevision;
+    return CachedRange(
+      id: id,  // 保留当前区间的 id
+      startRevision: newStart,
+      endRevision: newEnd,
+      createdAt: createdAt.isBefore(other.createdAt) ? createdAt : other.createdAt,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  /// 区间包含的版本数量（注意：这是 revision 范围，不是实际记录数）
+  int get revisionSpan => startRevision - endRevision + 1;
+
+  @override
+  String toString() => 'CachedRange[$startRevision, $endRevision]';
+}
+
 /// 缓存校验错误
 class CacheValidationError {
   final String message;
@@ -61,7 +112,7 @@ class LogCacheService {
   SharedPreferences? _prefs;
   
   /// 数据库版本
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
   
   /// 映射存储的 key
   static const String _urlHashMapKey = 'log_cache_url_hash_map';
@@ -265,6 +316,18 @@ class LogCacheService {
     ''');
     db.execute('INSERT INTO db_version (version) VALUES (?)', [_dbVersion]);
 
+    // 缓存区间表（版本4新增）
+    db.execute('''
+      CREATE TABLE cached_ranges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_revision INTEGER NOT NULL,
+        end_revision INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    db.execute('CREATE INDEX idx_ranges_start ON cached_ranges(start_revision DESC)');
+
     AppLogger.storage.info('数据库表创建完成');
   }
 
@@ -385,6 +448,53 @@ class LogCacheService {
         AppLogger.storage.warn('添加 date 索引失败（可能已存在）: $e');
       }
     }
+    
+    if (oldVersion < 4) {
+      // 版本 4：添加缓存区间表
+      try {
+        db.execute('''
+          CREATE TABLE IF NOT EXISTS cached_ranges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_revision INTEGER NOT NULL,
+            end_revision INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
+        db.execute('CREATE INDEX IF NOT EXISTS idx_ranges_start ON cached_ranges(start_revision DESC)');
+        AppLogger.storage.info('已添加 cached_ranges 表（数据库升级）');
+        
+        // 迁移现有数据：根据现有的 log_entries 创建初始区间
+        await _migrateExistingDataToRanges(db);
+      } catch (e) {
+        AppLogger.storage.warn('添加 cached_ranges 表失败: $e');
+      }
+    }
+  }
+
+  /// 迁移现有数据到区间表
+  /// 
+  /// 对于升级的数据库，根据现有的 log_entries 创建一个初始区间
+  Future<void> _migrateExistingDataToRanges(Database db) async {
+    try {
+      // 获取现有数据的最大和最小 revision
+      final maxResult = db.select('SELECT MAX(revision) FROM log_entries');
+      final minResult = db.select('SELECT MIN(revision) FROM log_entries');
+      
+      final maxRev = maxResult.first.columnAt(0) as int?;
+      final minRev = minResult.first.columnAt(0) as int?;
+      
+      if (maxRev != null && minRev != null) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        db.execute(
+          'INSERT INTO cached_ranges (start_revision, end_revision, created_at, updated_at) VALUES (?, ?, ?, ?)',
+          [maxRev, minRev, now, now],
+        );
+        AppLogger.storage.info('已迁移现有数据到区间: [$maxRev, $minRev]');
+      }
+    } catch (e) {
+      AppLogger.storage.warn('迁移现有数据到区间失败: $e');
+    }
   }
 
   /// 确保服务已初始化
@@ -439,7 +549,17 @@ class LogCacheService {
   }
 
   /// 批量插入日志条目
-  Future<void> insertEntries(String sourceUrl, List<LogEntry> entries) async {
+  /// 
+  /// [sourceUrl] 源 URL
+  /// [entries] 日志条目列表
+  /// [isFromHead] 是否从 HEAD 开始获取的数据（用于区间管理）
+  ///   - true: 从 HEAD 向旧版本获取，需要创建新区间或扩展起点
+  ///   - false: 从缓存最旧版本继续向旧版本获取，扩展区间终点
+  Future<void> insertEntries(
+    String sourceUrl, 
+    List<LogEntry> entries, {
+    bool isFromHead = false,
+  }) async {
     if (entries.isEmpty) return;
 
     try {
@@ -479,7 +599,7 @@ class LogCacheService {
         }
       }
 
-      // 更新元数据
+      // 更新元数据（保持向后兼容）
       final latestRevision = entries.map((e) => e.revision).reduce((a, b) => a > b ? a : b);
       final earliestRevision = entries.map((e) => e.revision).reduce((a, b) => a < b ? a : b);
       
@@ -505,7 +625,10 @@ class LogCacheService {
         [newLatest, newEarliest, now],
       );
 
-      AppLogger.storage.info('已插入 ${entries.length} 条日志到缓存: $sourceUrl');
+      // 更新区间
+      await _updateRangesAfterInsert(sourceUrl, latestRevision, earliestRevision, isFromHead);
+
+      AppLogger.storage.info('已插入 ${entries.length} 条日志到缓存: $sourceUrl (区间: [$latestRevision, $earliestRevision])');
     } catch (e, stackTrace) {
       AppLogger.storage.error('插入日志条目失败', e, stackTrace);
       rethrow;
@@ -757,4 +880,454 @@ class LogCacheService {
   
   /// 获取缓存目录路径
   String? getCacheDir() => _cacheDir;
+
+  // ===== 区间管理方法 =====
+
+  /// 获取所有缓存区间（按 startRevision 降序排列）
+  Future<List<CachedRange>> getAllRanges(String sourceUrl) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      final result = db.select(
+        'SELECT id, start_revision, end_revision, created_at, updated_at FROM cached_ranges ORDER BY start_revision DESC',
+      );
+      
+      return result.map((row) => CachedRange(
+        id: row.columnAt(0) as int,
+        startRevision: row.columnAt(1) as int,
+        endRevision: row.columnAt(2) as int,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(3) as int),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(4) as int),
+      )).toList();
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取缓存区间失败', e, stackTrace);
+      return [];
+    }
+  }
+
+  /// 获取最新的区间（startRevision 最大的那个）
+  Future<CachedRange?> getLatestRange(String sourceUrl) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      final result = db.select(
+        'SELECT id, start_revision, end_revision, created_at, updated_at FROM cached_ranges ORDER BY start_revision DESC LIMIT 1',
+      );
+      
+      if (result.isEmpty) {
+        return null;
+      }
+      
+      final row = result.first;
+      return CachedRange(
+        id: row.columnAt(0) as int,
+        startRevision: row.columnAt(1) as int,
+        endRevision: row.columnAt(2) as int,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(3) as int),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(row.columnAt(4) as int),
+      );
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间失败', e, stackTrace);
+      return null;
+    }
+  }
+
+  /// 添加或更新区间
+  /// 
+  /// 插入新区间后会自动检查并合并连续的区间
+  Future<void> addOrUpdateRange(String sourceUrl, int startRevision, int endRevision) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      
+      // 插入新区间
+      db.execute(
+        'INSERT INTO cached_ranges (start_revision, end_revision, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [startRevision, endRevision, now, now],
+      );
+      
+      AppLogger.storage.info('已添加新区间: [$startRevision, $endRevision]');
+      
+      // 合并连续区间
+      await _mergeAdjacentRanges(db);
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('添加区间失败', e, stackTrace);
+    }
+  }
+
+  /// 插入数据后更新区间
+  /// 
+  /// [latestRevision] 本次插入的最新版本
+  /// [earliestRevision] 本次插入的最旧版本
+  /// [isFromHead] 是否从 HEAD 开始获取的数据
+  Future<void> _updateRangesAfterInsert(
+    String sourceUrl,
+    int latestRevision,
+    int earliestRevision,
+    bool isFromHead,
+  ) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      
+      if (latestRange == null) {
+        // 没有区间，创建新区间
+        await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
+        return;
+      }
+      
+      if (isFromHead) {
+        // 从 HEAD 获取的数据
+        // 检查是否与现有最新区间连续
+        if (earliestRevision == latestRange.startRevision) {
+          // 连续：扩展最新区间的起点
+          await extendLatestRangeStart(sourceUrl, latestRevision);
+        } else if (latestRevision > latestRange.startRevision) {
+          // 不连续且更新：创建新区间（这将成为最新区间）
+          await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
+        }
+        // 如果 latestRevision <= latestRange.startRevision，说明数据已存在，不需要更新
+      } else {
+        // 从缓存最旧版本继续获取的数据
+        // 检查是否与最新区间连续
+        if (latestRevision == latestRange.endRevision) {
+          // 连续：扩展最新区间的终点
+          await extendLatestRangeEnd(sourceUrl, earliestRevision);
+        } else {
+          // 不连续：这种情况理论上不应该发生
+          // 但为了健壮性，仍然创建新区间
+          AppLogger.storage.warn('检测到不连续的加载更多数据: [$latestRevision, $earliestRevision], 最新区间: $latestRange');
+          await addOrUpdateRange(sourceUrl, latestRevision, earliestRevision);
+        }
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('更新区间失败', e, stackTrace);
+    }
+  }
+
+  /// 扩展最新区间的终点（向旧版本扩展）
+  /// 
+  /// [newEndRevision] 新的终点（较小的 revision）
+  Future<void> extendLatestRangeEnd(String sourceUrl, int newEndRevision) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      final latestRange = await getLatestRange(sourceUrl);
+      
+      if (latestRange == null) {
+        AppLogger.storage.warn('没有最新区间可扩展');
+        return;
+      }
+      
+      // 只有当新终点更小时才更新
+      if (newEndRevision < latestRange.endRevision) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        db.execute(
+          'UPDATE cached_ranges SET end_revision = ?, updated_at = ? WHERE id = ?',
+          [newEndRevision, now, latestRange.id],
+        );
+        AppLogger.storage.info('已扩展最新区间: [${latestRange.startRevision}, $newEndRevision]');
+        
+        // 检查是否需要合并
+        await _mergeAdjacentRanges(db);
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('扩展区间失败', e, stackTrace);
+    }
+  }
+
+  /// 扩展最新区间的起点（向新版本扩展）
+  /// 
+  /// [newStartRevision] 新的起点（较大的 revision）
+  Future<void> extendLatestRangeStart(String sourceUrl, int newStartRevision) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      final latestRange = await getLatestRange(sourceUrl);
+      
+      if (latestRange == null) {
+        AppLogger.storage.warn('没有最新区间可扩展');
+        return;
+      }
+      
+      // 只有当新起点更大时才更新
+      if (newStartRevision > latestRange.startRevision) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        db.execute(
+          'UPDATE cached_ranges SET start_revision = ?, updated_at = ? WHERE id = ?',
+          [newStartRevision, now, latestRange.id],
+        );
+        AppLogger.storage.info('已扩展最新区间起点: [$newStartRevision, ${latestRange.endRevision}]');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('扩展区间起点失败', e, stackTrace);
+    }
+  }
+
+  /// 合并相邻的连续区间
+  /// 
+  /// 关键规则：只有首尾相同的区间才算连续
+  /// 例如：[200, 100] 和 [100, 50] 是连续的（100 == 100）
+  Future<void> _mergeAdjacentRanges(Database db) async {
+    try {
+      // 获取所有区间，按 startRevision 降序
+      final result = db.select(
+        'SELECT id, start_revision, end_revision FROM cached_ranges ORDER BY start_revision DESC',
+      );
+      
+      if (result.length < 2) {
+        return; // 少于2个区间，无需合并
+      }
+      
+      final ranges = result.map((row) => (
+        id: row.columnAt(0) as int,
+        start: row.columnAt(1) as int,
+        end: row.columnAt(2) as int,
+      )).toList();
+      
+      final toDelete = <int>[];
+      final toUpdate = <({int id, int start, int end})>[];
+      
+      // 从最新区间开始，检查是否与下一个区间连续
+      for (int i = 0; i < ranges.length - 1; i++) {
+        final current = ranges[i];
+        final next = ranges[i + 1];
+        
+        // 关键判断：首尾相同才算连续
+        if (current.end == next.start) {
+          // 合并：保留 current，删除 next，扩展 current 的 end
+          toUpdate.add((id: current.id, start: current.start, end: next.end));
+          toDelete.add(next.id);
+          // 更新 ranges 以便继续检查
+          ranges[i] = (id: current.id, start: current.start, end: next.end);
+          ranges.removeAt(i + 1);
+          i--; // 重新检查当前位置
+        }
+      }
+      
+      // 执行更新和删除
+      if (toDelete.isNotEmpty || toUpdate.isNotEmpty) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        
+        for (final update in toUpdate) {
+          db.execute(
+            'UPDATE cached_ranges SET end_revision = ?, updated_at = ? WHERE id = ?',
+            [update.end, now, update.id],
+          );
+        }
+        
+        for (final id in toDelete) {
+          db.execute('DELETE FROM cached_ranges WHERE id = ?', [id]);
+        }
+        
+        AppLogger.storage.info('已合并 ${toDelete.length} 个连续区间');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('合并区间失败', e, stackTrace);
+    }
+  }
+
+  /// 获取最新区间内的日志条目数量
+  Future<int> getLatestRangeEntryCount(String sourceUrl) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return 0;
+      }
+      
+      final db = await _getDatabase(sourceUrl);
+      final result = db.select(
+        'SELECT COUNT(*) FROM log_entries WHERE revision >= ? AND revision <= ?',
+        [latestRange.endRevision, latestRange.startRevision],
+      );
+      
+      return result.first.columnAt(0) as int;
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间条目数量失败', e, stackTrace);
+      return 0;
+    }
+  }
+
+  /// 获取最新区间内的日志条目
+  Future<List<LogEntry>> getEntriesInLatestRange(
+    String sourceUrl, {
+    int? limit,
+    int offset = 0,
+    String? authorFilter,
+    String? titleFilter,
+    int? minRevision,
+  }) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return [];
+      }
+      
+      final db = await _getDatabase(sourceUrl);
+      
+      final whereConditions = <String>[
+        'revision >= ?',
+        'revision <= ?',
+      ];
+      final whereArgs = <Object>[
+        latestRange.endRevision,
+        latestRange.startRevision,
+      ];
+      
+      if (minRevision != null && minRevision > 0) {
+        whereConditions.add('revision >= ?');
+        whereArgs.add(minRevision);
+      }
+      
+      if (authorFilter != null && authorFilter.isNotEmpty) {
+        whereConditions.add('author = ?');
+        whereArgs.add(authorFilter.trim());
+      }
+      
+      if (titleFilter != null && titleFilter.isNotEmpty) {
+        whereConditions.add('LOWER(title) LIKE ?');
+        whereArgs.add('%${titleFilter.toLowerCase()}%');
+      }
+      
+      var query = 'SELECT revision, author, date, title, message FROM log_entries';
+      query += ' WHERE ${whereConditions.join(' AND ')}';
+      query += ' ORDER BY revision DESC';
+      
+      if (limit != null) {
+        query += ' LIMIT ? OFFSET ?';
+        whereArgs.add(limit);
+        whereArgs.add(offset);
+      }
+
+      final results = db.select(query, whereArgs);
+      return results.map((row) => LogEntry(
+        revision: row.columnAt(0) as int,
+        author: row.columnAt(1) as String,
+        date: row.columnAt(2) as String,
+        title: row.columnAt(3) as String,
+        message: row.columnAt(4) as String,
+      )).toList();
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间日志条目失败', e, stackTrace);
+      return [];
+    }
+  }
+
+  /// 获取最新区间内符合过滤条件的日志数量
+  Future<int> getEntryCountInLatestRange(
+    String sourceUrl, {
+    String? authorFilter,
+    String? titleFilter,
+    int? minRevision,
+  }) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return 0;
+      }
+      
+      final db = await _getDatabase(sourceUrl);
+      
+      final whereConditions = <String>[
+        'revision >= ?',
+        'revision <= ?',
+      ];
+      final whereArgs = <Object>[
+        latestRange.endRevision,
+        latestRange.startRevision,
+      ];
+      
+      if (minRevision != null && minRevision > 0) {
+        whereConditions.add('revision >= ?');
+        whereArgs.add(minRevision);
+      }
+      
+      if (authorFilter != null && authorFilter.isNotEmpty) {
+        whereConditions.add('LOWER(author) LIKE ?');
+        whereArgs.add('%${authorFilter.toLowerCase()}%');
+      }
+      
+      if (titleFilter != null && titleFilter.isNotEmpty) {
+        whereConditions.add('LOWER(title) LIKE ?');
+        whereArgs.add('%${titleFilter.toLowerCase()}%');
+      }
+      
+      var query = 'SELECT COUNT(*) FROM log_entries';
+      query += ' WHERE ${whereConditions.join(' AND ')}';
+      
+      final result = db.select(query, whereArgs);
+      return result.first.columnAt(0) as int;
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间日志数量失败', e, stackTrace);
+      return 0;
+    }
+  }
+
+  /// 清空所有区间（用于重建缓存）
+  Future<void> clearAllRanges(String sourceUrl) async {
+    try {
+      final db = await _getDatabase(sourceUrl);
+      db.execute('DELETE FROM cached_ranges');
+      AppLogger.storage.info('已清空所有区间');
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('清空区间失败', e, stackTrace);
+    }
+  }
+
+  /// 获取最新区间的最早版本号
+  Future<int> getEarliestRevisionInLatestRange(String sourceUrl) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return 0;
+      }
+      return latestRange.endRevision;
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间最早版本号失败', e, stackTrace);
+      return 0;
+    }
+  }
+
+  /// 获取最新区间的最新版本号
+  Future<int> getLatestRevisionInLatestRange(String sourceUrl) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return 0;
+      }
+      return latestRange.startRevision;
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间最新版本号失败', e, stackTrace);
+      return 0;
+    }
+  }
+
+  /// 获取最新区间的最早日期
+  Future<DateTime?> getEarliestDateInLatestRange(String sourceUrl) async {
+    try {
+      final latestRange = await getLatestRange(sourceUrl);
+      if (latestRange == null) {
+        return null;
+      }
+      
+      final db = await _getDatabase(sourceUrl);
+      final result = db.select(
+        'SELECT MIN(date) FROM log_entries WHERE revision >= ? AND revision <= ?',
+        [latestRange.endRevision, latestRange.startRevision],
+      );
+
+      if (result.isEmpty) {
+        return null;
+      }
+
+      final value = result.first.columnAt(0);
+      if (value == null) {
+        return null;
+      }
+
+      try {
+        return DateTime.parse(value as String);
+      } catch (_) {
+        return null;
+      }
+    } catch (e, stackTrace) {
+      AppLogger.storage.error('获取最新区间最早日期失败', e, stackTrace);
+      return null;
+    }
+  }
 }
