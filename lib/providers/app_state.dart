@@ -298,7 +298,10 @@ class AppState extends ChangeNotifier {
   /// 加载 mergeinfo 缓存
   /// 
   /// 如果缓存为空，会从 SVN 获取
-  Future<void> loadMergeInfo({bool forceRefresh = false}) async {
+  /// 
+  /// [forceRefresh] 强制从 SVN 重新获取（保留缓存作为增量）
+  /// [fullRefresh] 完整刷新：清空缓存后重新获取（用于 revert 后刷新）
+  Future<void> loadMergeInfo({bool forceRefresh = false, bool fullRefresh = false}) async {
     if (_lastSourceUrl == null || _lastTargetWc == null) {
       return;
     }
@@ -311,8 +314,9 @@ class AppState extends ChangeNotifier {
         _lastSourceUrl!,
         _lastTargetWc!,
         forceRefresh: forceRefresh,
+        fullRefresh: fullRefresh,
       );
-      AppLogger.app.info('MergeInfo 加载完成');
+      AppLogger.app.info('MergeInfo 加载完成${fullRefresh ? "（完整刷新）" : forceRefresh ? "（强制刷新）" : ""}');
     } catch (e, stackTrace) {
       AppLogger.app.error('加载 MergeInfo 失败', e, stackTrace);
     } finally {

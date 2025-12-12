@@ -7,6 +7,7 @@ import '../models/app_config.dart' show PreloadSettings;
 import '../models/log_entry.dart';
 import '../models/merge_job.dart';
 import '../services/svn_service.dart';
+import '../services/working_copy_manager.dart';
 import '../services/logger_service.dart';
 import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
@@ -49,6 +50,7 @@ class _MainScreenState extends State<MainScreen> {
   final _preloadService = PreloadService();
   final _logCacheService = LogCacheService();
   final _svnService = SvnService();
+  final _wcManager = WorkingCopyManager();  // 工作副本操作管理器
   
   // 缓存的分支点（避免重复查询）
   int? _cachedBranchPoint;
@@ -358,12 +360,18 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
     
+    // 检查是否正在操作中
+    if (_wcManager.isLocked(targetWc)) {
+      final lockInfo = _wcManager.getLockInfo(targetWc);
+      _showError('工作副本正在执行 ${lockInfo?.operationType}，请稍后再试');
+      return;
+    }
+    
     AppLogger.ui.info('开始 SVN Update: $targetWc');
     _showInfo('正在执行 SVN Update...');
     
     try {
-      final svnService = SvnService();
-      final result = await svnService.update(targetWc);
+      final result = await _wcManager.update(targetWc);
       
       if (result.exitCode == 0) {
         AppLogger.ui.info('SVN Update 成功');
@@ -389,6 +397,13 @@ class _MainScreenState extends State<MainScreen> {
     final targetWc = _targetWcController.text.trim();
     if (targetWc.isEmpty) {
       _showError('请先选择目标工作副本');
+      return;
+    }
+    
+    // 检查是否正在操作中
+    if (_wcManager.isLocked(targetWc)) {
+      final lockInfo = _wcManager.getLockInfo(targetWc);
+      _showError('工作副本正在执行 ${lockInfo?.operationType}，请稍后再试');
       return;
     }
     
@@ -418,12 +433,25 @@ class _MainScreenState extends State<MainScreen> {
     _showInfo('正在执行 SVN Revert...');
     
     try {
-      final svnService = SvnService();
-      final result = await svnService.revert(targetWc, recursive: true);
+      final sourceUrl = _sourceUrlController.text.trim();
+      // 使用 WorkingCopyManager，它会自动刷新 mergeinfo 缓存
+      final result = await _wcManager.revert(
+        targetWc, 
+        recursive: true,
+        sourceUrl: sourceUrl,
+        refreshMergeInfo: true,
+      );
       
       if (result.exitCode == 0) {
         AppLogger.ui.info('SVN Revert 成功');
         _showSuccess('Revert 完成');
+        
+        // 通知 UI 刷新 mergeinfo
+        if (mounted && sourceUrl.isNotEmpty) {
+          final appState = Provider.of<AppState>(context, listen: false);
+          // 重新加载 mergeinfo 以触发 UI 刷新
+          await appState.loadMergeInfo(fullRefresh: true);
+        }
       } else {
         AppLogger.ui.error('SVN Revert 失败: ${result.stderr}');
         _showError('Revert 失败: ${result.stderr}');
@@ -442,12 +470,18 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
     
+    // 检查是否正在操作中
+    if (_wcManager.isLocked(targetWc)) {
+      final lockInfo = _wcManager.getLockInfo(targetWc);
+      _showError('工作副本正在执行 ${lockInfo?.operationType}，请稍后再试');
+      return;
+    }
+    
     AppLogger.ui.info('开始 SVN Cleanup: $targetWc');
     _showInfo('正在执行 SVN Cleanup...');
     
     try {
-      final svnService = SvnService();
-      final result = await svnService.cleanup(targetWc);
+      final result = await _wcManager.cleanup(targetWc);
       
       if (result.exitCode == 0) {
         AppLogger.ui.info('SVN Cleanup 成功');
@@ -764,6 +798,12 @@ class _MainScreenState extends State<MainScreen> {
 
     if (appState.pendingRevisions.isEmpty) {
       _showError('待合并列表为空');
+      return;
+    }
+    
+    // 检查是否有暂停的任务
+    if (mergeState.isLocked) {
+      _showError('有暂停的任务需要处理，无法添加新任务');
       return;
     }
 
@@ -1929,9 +1969,15 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildBottomSection() {
     return Consumer<MergeState>(
       builder: (context, mergeState, _) {
+        final hasPausedJob = mergeState.hasPausedJob;
+        final pausedJob = mergeState.pausedJob;
+        
         return Container(
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.orange.shade300, width: 2),
+            border: Border.all(
+              color: hasPausedJob ? Colors.red.shade400 : Colors.orange.shade300, 
+              width: hasPausedJob ? 3 : 2,
+            ),
             borderRadius: BorderRadius.circular(4),
           ),
           margin: const EdgeInsets.all(4),
@@ -1941,38 +1987,165 @@ class _MainScreenState extends State<MainScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade100,
+                  color: hasPausedJob ? Colors.red.shade100 : Colors.orange.shade100,
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.task, color: Colors.orange.shade700, size: 20),
+                    Icon(
+                      hasPausedJob ? Icons.pause_circle : Icons.task, 
+                      color: hasPausedJob ? Colors.red.shade700 : Colors.orange.shade700, 
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(
-                      '任务队列与操作日志',
+                      hasPausedJob ? '任务已暂停 - 需要人工介入' : '任务队列与操作日志',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Colors.orange.shade900,
+                        color: hasPausedJob ? Colors.red.shade900 : Colors.orange.shade900,
                       ),
                     ),
                     const Spacer(),
-                    Icon(
-                      Icons.drag_handle,
-                      color: Colors.orange.shade700,
-                      size: 20,
-                    ),
-                    Text(
-                      ' 拖动调整大小',
-                      style: TextStyle(
-                        fontSize: 12,
+                    if (!hasPausedJob) ...[
+                      Icon(
+                        Icons.drag_handle,
                         color: Colors.orange.shade700,
-                        fontStyle: FontStyle.italic,
+                        size: 20,
                       ),
-                    ),
+                      Text(
+                        ' 拖动调整大小',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade700,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
+              
+              // 暂停状态操作栏
+              if (hasPausedJob && pausedJob != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.red.shade200),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 暂停信息
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber, color: Colors.red.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '任务 #${pausedJob.jobId} 已暂停',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red.shade900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '原因: ${pausedJob.pauseReason}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.red.shade700,
+                                  ),
+                                ),
+                                Text(
+                                  '进度: ${pausedJob.completedIndex}/${pausedJob.revisions.length} (当前: r${pausedJob.currentRevision})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // 操作按钮
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          // 继续按钮
+                          ElevatedButton.icon(
+                            onPressed: mergeState.isProcessing
+                                ? null
+                                : () => mergeState.resumePausedJob(),
+                            icon: const Icon(Icons.play_arrow, size: 18),
+                            label: const Text('继续任务'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                          // 跳过当前按钮
+                          OutlinedButton.icon(
+                            onPressed: mergeState.isProcessing
+                                ? null
+                                : () => _confirmSkipRevision(mergeState, pausedJob),
+                            icon: const Icon(Icons.skip_next, size: 18),
+                            label: Text('跳过 r${pausedJob.currentRevision}'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.orange.shade700,
+                            ),
+                          ),
+                          // 取消任务按钮
+                          OutlinedButton.icon(
+                            onPressed: mergeState.isProcessing
+                                ? null
+                                : () => _confirmCancelJob(mergeState, pausedJob),
+                            icon: const Icon(Icons.cancel, size: 18),
+                            label: const Text('取消任务'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // 提示信息
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.amber.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 16, color: Colors.amber.shade700),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '在暂停状态下，无法添加新任务。请先处理当前暂停的任务。',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.amber.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // 内容区域（任务列表 + 日志）
               Expanded(
@@ -2019,21 +2192,19 @@ class _MainScreenState extends State<MainScreen> {
                                         return ListTile(
                                           dense: true,
                                           visualDensity: VisualDensity.compact,
+                                          tileColor: job.status == JobStatus.paused 
+                                              ? Colors.red.shade50 
+                                              : null,
                                           title: Text(
                                             job.description,
-                                            style: const TextStyle(fontSize: 12),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: job.status == JobStatus.paused 
+                                                  ? Colors.red.shade900 
+                                                  : null,
+                                            ),
                                           ),
-                                          trailing: job.status == JobStatus.failed
-                                              ? const Icon(Icons.error, color: Colors.red, size: 16)
-                                              : job.status == JobStatus.done
-                                                  ? const Icon(Icons.check, color: Colors.green, size: 16)
-                                                  : job.status == JobStatus.running
-                                                      ? const SizedBox(
-                                                          width: 16,
-                                                          height: 16,
-                                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                                        )
-                                                      : const Icon(Icons.schedule, color: Colors.grey, size: 16),
+                                          trailing: _buildJobStatusIcon(job),
                                         );
                                       },
                                     ),
@@ -2106,5 +2277,88 @@ class _MainScreenState extends State<MainScreen> {
         );
       },
     );
+  }
+  
+  /// 构建任务状态图标
+  Widget _buildJobStatusIcon(MergeJob job) {
+    switch (job.status) {
+      case JobStatus.failed:
+        return const Icon(Icons.error, color: Colors.red, size: 16);
+      case JobStatus.done:
+        return const Icon(Icons.check, color: Colors.green, size: 16);
+      case JobStatus.running:
+        return const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+      case JobStatus.paused:
+        return const Icon(Icons.pause_circle, color: Colors.red, size: 16);
+      case JobStatus.pending:
+      default:
+        return const Icon(Icons.schedule, color: Colors.grey, size: 16);
+    }
+  }
+  
+  /// 确认跳过当前 revision
+  Future<void> _confirmSkipRevision(MergeState mergeState, MergeJob job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认跳过'),
+        content: Text(
+          '确定要跳过 r${job.currentRevision} 吗？\n\n'
+          '跳过后，该 revision 的修改将不会被合并到目标分支。\n'
+          '您可能需要后续手动处理。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('跳过'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await mergeState.skipCurrentRevision();
+    }
+  }
+  
+  /// 确认取消任务
+  Future<void> _confirmCancelJob(MergeState mergeState, MergeJob job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认取消任务'),
+        content: Text(
+          '确定要取消任务 #${job.jobId} 吗？\n\n'
+          '已完成: ${job.completedIndex}/${job.revisions.length} 个 revision\n'
+          '剩余: ${job.remainingRevisions.map((r) => 'r$r').join(', ')}\n\n'
+          '取消后，工作副本将被还原到干净状态。\n'
+          '已提交的 revision 不会被撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('返回'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('取消任务'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await mergeState.cancelPausedJob();
+    }
   }
 }

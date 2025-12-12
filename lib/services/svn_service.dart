@@ -19,18 +19,23 @@ import 'logger_service.dart';
 import 'svn_xml_parser.dart';
 
 /// ProcessResult 的包装类，用于处理编码问题
-class _ProcessResultWrapper {
+/// 
+/// 这是一个公开的类，供其他模块使用（如 WorkingCopyManager）
+class SvnProcessResult {
   final int exitCode;
   final String stdout;
   final String stderr;
   final int pid;
 
-  _ProcessResultWrapper({
+  SvnProcessResult({
     required this.exitCode,
     required this.stdout,
     required this.stderr,
     required this.pid,
   });
+  
+  /// 是否成功
+  bool get isSuccess => exitCode == 0;
 }
 
 class SvnService {
@@ -128,7 +133,7 @@ class SvnService {
   /// [workingDirectory] 工作目录
   /// [username] SVN 用户名
   /// [password] SVN 密码
-  Future<_ProcessResultWrapper> _runSvnCommand(
+  Future<SvnProcessResult> _runSvnCommand(
     List<String> args, {
     bool useXml = false,
     String? workingDirectory,
@@ -199,7 +204,7 @@ class SvnService {
     }
     
     // 创建一个包装结果
-    final wrappedResult = _ProcessResultWrapper(
+    final wrappedResult = SvnProcessResult(
       exitCode: result.exitCode,
       stdout: stdout,
       stderr: stderr,
@@ -488,7 +493,7 @@ class SvnService {
   /// 执行 SVN update
   /// 
   /// 返回结果，可以检查 exitCode 判断是否成功
-  Future<_ProcessResultWrapper> update(
+  Future<SvnProcessResult> update(
     String targetWc, {
     String? username,
     String? password,
@@ -514,7 +519,7 @@ class SvnService {
   /// 
   /// 返回结果，可以检查 exitCode 判断是否成功
   /// [recursive] 是否递归还原（默认 false）
-  Future<_ProcessResultWrapper> revert(
+  Future<SvnProcessResult> revert(
     String targetWc, {
     bool recursive = false,
     String? username,
@@ -541,7 +546,7 @@ class SvnService {
   /// 执行 SVN cleanup
   /// 
   /// 返回结果，可以检查 exitCode 判断是否成功
-  Future<_ProcessResultWrapper> cleanup(
+  Future<SvnProcessResult> cleanup(
     String targetWc, {
     String? username,
     String? password,

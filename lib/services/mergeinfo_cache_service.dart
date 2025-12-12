@@ -288,12 +288,26 @@ class MergeInfoCacheService {
   /// 优化策略：
   /// 1. 先尝试从本地 svn:mergeinfo 属性读取（快速，无网络请求）
   /// 2. 如果失败，再使用 svn mergeinfo 命令（慢，需要网络）
-  Future<Set<int>> fetchAndUpdateFromSvn(String sourceUrl, String targetWc) async {
+  /// 
+  /// [fullRefresh] 如果为 true，会先清空缓存再重新获取（用于 revert 后刷新）
+  Future<Set<int>> fetchAndUpdateFromSvn(String sourceUrl, String targetWc, {bool fullRefresh = false}) async {
     if (sourceUrl.isEmpty || targetWc.isEmpty) {
       return {};
     }
     
     try {
+      // 如果是完整刷新，先清空缓存
+      if (fullRefresh) {
+        AppLogger.storage.info('完整刷新模式：清空现有缓存');
+        final cacheKey = _generateCacheKey(sourceUrl, targetWc);
+        _memoryCache.remove(cacheKey);
+        _cacheLoaded.remove(cacheKey);
+        
+        // 清空数据库中的记录
+        final db = await _getDatabase(sourceUrl, targetWc);
+        db.execute('DELETE FROM merged_revisions');
+      }
+      
       AppLogger.storage.info('正在从本地属性读取 mergeinfo: $sourceUrl -> $targetWc');
       
       // 优先使用快速的本地属性读取
@@ -311,8 +325,13 @@ class MergeInfoCacheService {
         );
       }
       
+      // 更新内存缓存（无论是否为空都要更新，以反映真实状态）
+      final cacheKey = _generateCacheKey(sourceUrl, targetWc);
+      _memoryCache[cacheKey] = mergedRevisions;
+      _cacheLoaded[cacheKey] = true;
+      
       if (mergedRevisions.isNotEmpty) {
-        // 保存到缓存
+        // 保存到数据库缓存
         await saveToCache(sourceUrl, targetWc, mergedRevisions);
         
         // 更新全量同步时间
@@ -401,13 +420,22 @@ class MergeInfoCacheService {
   /// 获取所有已合并的 revision（从缓存）
   /// 
   /// 如果缓存为空，会尝试从 SVN 获取
+  /// 
+  /// [forceRefresh] 如果为 true，会重新从 SVN 获取（但保留缓存作为增量）
+  /// [fullRefresh] 如果为 true，会先清空缓存再重新获取（用于 revert 后刷新）
   Future<Set<int>> getMergedRevisions(
     String sourceUrl,
     String targetWc, {
     bool forceRefresh = false,
+    bool fullRefresh = false,
   }) async {
     if (sourceUrl.isEmpty || targetWc.isEmpty) {
       return {};
+    }
+    
+    // 如果完整刷新，清空缓存并重新获取
+    if (fullRefresh) {
+      return await fetchAndUpdateFromSvn(sourceUrl, targetWc, fullRefresh: true);
     }
     
     // 如果强制刷新，从 SVN 获取
