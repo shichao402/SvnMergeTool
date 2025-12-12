@@ -1498,11 +1498,12 @@ class _MainScreenState extends State<MainScreen> {
                     return Column(
                       children: [
                         Expanded(
-                          child: ListView.builder(
-                            itemCount: paginatedEntries.length,
-                            // 增加缓存范围，提升滚动性能
-                            cacheExtent: 500,
-                            itemBuilder: (context, index) {
+                          child: ClipRect(
+                            child: ListView.builder(
+                              itemCount: paginatedEntries.length,
+                              // 增加缓存范围，提升滚动性能
+                              cacheExtent: 500,
+                              itemBuilder: (context, index) {
                               final entry = paginatedEntries[index];
                               final isSelected = _selectedRevisions.contains(entry.revision);
                               final isPending = appState.pendingRevisions.contains(entry.revision);
