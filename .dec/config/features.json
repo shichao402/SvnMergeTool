@@ -1,0 +1,42 @@
+{
+  "core": {
+    "svnMerge": {
+      "description": "SVN 分支自动合并",
+      "capabilities": [
+        "选择源分支和目标工作副本",
+        "查看可合并的版本列表",
+        "批量选择版本进行合并",
+        "自动处理合并冲突检测",
+        "合并任务队列管理"
+      ]
+    },
+    "logViewer": {
+      "description": "SVN 日志查看和筛选",
+      "capabilities": [
+        "查看版本日志详情",
+        "按作者、日期、消息筛选",
+        "日志缓存和增量加载",
+        "支持大量日志高效浏览"
+      ]
+    },
+    "mergeInfo": {
+      "description": "合并信息管理",
+      "capabilities": [
+        "查看已合并版本",
+        "查看待合并版本",
+        "mergeinfo 缓存和刷新"
+      ]
+    }
+  },
+  "settings": {
+    "workingCopy": "工作副本路径配置",
+    "sourceUrls": "源分支 URL 管理",
+    "credentials": "SVN 凭证管理",
+    "preload": "数据预加载配置"
+  },
+  "data": {
+    "persistence": "SQLite 本地数据库",
+    "caching": "日志和 mergeinfo 缓存",
+    "config": "shared_preferences 配置存储"
+  }
+}

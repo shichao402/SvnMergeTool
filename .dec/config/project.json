@@ -1,0 +1,9 @@
+{
+  "name": "SvnMergeTool",
+  "description": "一个适用于单一仓库大型项目 SVN 的自动合并分支工具，基于 Flutter 构建的桌面应用",
+  "ides": ["cursor", "codebuddy"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shichao402/SvnMergeTool"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "dev": {
+    "run": "flutter run -d windows",
+    "runMacos": "flutter run -d macos",
+    "debug": "flutter run -d windows --debug"
+  },
+  "build": {
+    "windows": "flutter build windows --release",
+    "macos": "flutter build macos --release",
+    "generateCode": "dart run build_runner build --delete-conflicting-outputs"
+  },
+  "test": {
+    "unit": "flutter test",
+    "coverage": "flutter test --coverage"
+  },
+  "clean": {
+    "flutter": "flutter clean",
+    "rebuild": "flutter clean && flutter pub get && dart run build_runner build --delete-conflicting-outputs"
+  },
+  "deps": {
+    "get": "flutter pub get",
+    "upgrade": "flutter pub upgrade",
+    "outdated": "flutter pub outdated"
+  },
+  "analyze": {
+    "lint": "flutter analyze",
+    "format": "dart format lib/"
+  }
+}

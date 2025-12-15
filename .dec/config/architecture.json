@@ -1,0 +1,30 @@
+{
+  "pattern": "MVVM",
+  "structure": {
+    "lib/": {
+      "main.dart": "应用入口，初始化服务和 Provider",
+      "models/": "数据模型，使用 json_serializable 生成序列化代码",
+      "providers/": "状态管理，使用 ChangeNotifier + Provider",
+      "screens/": "页面/视图组件",
+      "services/": "业务逻辑和外部服务封装",
+      "widgets/": "可复用的 UI 组件"
+    },
+    "scripts/": "构建、部署和辅助脚本（Python/Shell/Batch）",
+    "config/": "应用配置文件",
+    "assets/": "静态资源文件"
+  },
+  "services": {
+    "SvnService": "SVN 命令执行和解析",
+    "StorageService": "SQLite 数据持久化",
+    "LoggerService": "日志记录服务（AppLogger）",
+    "ConfigService": "应用配置管理",
+    "VersionService": "版本检查和更新",
+    "PreloadService": "数据预加载服务",
+    "LogCacheService": "SVN 日志缓存服务",
+    "MergeInfoCacheService": "合并信息缓存服务"
+  },
+  "providers": {
+    "AppState": "应用全局状态（配置、SVN 信息、mergeinfo）",
+    "MergeState": "合并任务状态管理"
+  }
+}

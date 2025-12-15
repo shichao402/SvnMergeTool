@@ -1,0 +1,14 @@
+{
+  "dec": {
+    "enabled": true
+  },
+  "flutter": {
+    "enabled": true,
+    "useMaterial3": true
+  },
+  "logging": {
+    "enabled": true,
+    "service": "AppLogger",
+    "levels": ["info", "warn", "error"]
+  }
+}

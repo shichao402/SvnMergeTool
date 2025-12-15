@@ -1,0 +1,45 @@
+{
+  "language": {
+    "id": "dart",
+    "name": "Dart",
+    "version": ">=3.6.0 <4.0.0"
+  },
+  "framework": {
+    "id": "flutter",
+    "name": "Flutter",
+    "buildTool": "Flutter CLI"
+  },
+  "platforms": [
+    {
+      "id": "windows",
+      "name": "Windows",
+      "primary": true
+    },
+    {
+      "id": "macos",
+      "name": "macOS"
+    }
+  ],
+  "stateManagement": "provider",
+  "database": "sqlite3",
+  "dependencies": {
+    "core": [
+      "provider",
+      "shared_preferences",
+      "path_provider",
+      "sqlite3",
+      "sqlite3_flutter_libs"
+    ],
+    "svn": [
+      "process_run",
+      "xml"
+    ],
+    "utils": [
+      "intl",
+      "yaml",
+      "crypto",
+      "path",
+      "file_picker"
+    ]
+  }
+}

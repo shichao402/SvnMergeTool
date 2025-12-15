@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "dec": {
+      "command": "dec",
+      "args": [
+        "serve"
+      ]
+    }
+  }
+}

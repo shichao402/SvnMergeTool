@@ -1,0 +1,34 @@
+{
+  "naming": {
+    "files": "snake_case",
+    "classes": "PascalCase",
+    "variables": "camelCase",
+    "constants": "camelCase",
+    "privateMembers": "_prefixCamelCase"
+  },
+  "code": {
+    "nullSafety": true,
+    "preferConst": true,
+    "useSuper": true,
+    "documentPublicApis": true
+  },
+  "imports": {
+    "order": ["dart:", "package:flutter", "package:", "relative"],
+    "preferRelative": true
+  },
+  "logging": {
+    "useAppLogger": true,
+    "categories": ["app", "svn", "storage", "merge"],
+    "format": "AppLogger.{category}.{level}(message, [error], [stackTrace])"
+  },
+  "errorHandling": {
+    "useTryCatch": true,
+    "logErrors": true,
+    "showUserFriendlyMessages": true
+  },
+  "comments": {
+    "language": "chinese",
+    "useDocComments": true,
+    "format": "/// 描述"
+  }
+}
