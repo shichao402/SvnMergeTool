@@ -1595,6 +1595,7 @@ class _MainScreenState extends State<MainScreen> {
                               );
                             },
                           ),
+                          ),
                         ),
                         // 分页控件
                         Container(
