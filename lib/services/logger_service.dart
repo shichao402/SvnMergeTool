@@ -67,46 +67,17 @@ class LoggerService {
     _tag = tag;
   }
 
-  /// 获取程序所在目录
-  Directory _getExecutableDirectory() {
-    // Platform.resolvedExecutable 返回当前运行的可执行文件的完整路径
-    // 例如：D:\workspace\GitHub\SvnMergeTool\build\windows\x64\runner\Debug\SvnMergeTool.exe
-    final exePath = Platform.resolvedExecutable;
-    final exeDir = Directory(path.dirname(exePath));
-    return exeDir;
-  }
-
   /// 初始化日志文件
   Future<void> _initLogFile() async {
     if (_initialized) return;
 
     try {
-      // 获取程序所在目录或应用支持目录
-      Directory logDir;
-      
-      // 获取程序所在目录
-      final exeDir = _getExecutableDirectory();
-      final exeLogDir = Directory(path.join(exeDir.path, 'logs'));
-      
-      // 策略1：使用程序所在目录下的 logs 目录（打包环境）
-      // 策略2：如果程序在 flutter 开发环境中运行，使用项目根目录
-      // 策略3：使用应用支持目录（fallback）
-      
-      // 检查是否在开发环境（flutter run）
-      final currentDir = Directory.current;
-      final isDevEnvironment = await File(path.join(currentDir.path, 'pubspec.yaml')).exists();
-      
-      if (isDevEnvironment) {
-        // 开发环境：使用项目根目录下的 logs 目录
-        logDir = Directory(path.join(currentDir.path, 'logs'));
-      } else if (await exeDir.exists()) {
-        // 打包环境：使用程序所在目录下的 logs 目录
-        logDir = exeLogDir;
-      } else {
-        // Fallback：使用应用支持目录
-        final appDir = await getApplicationSupportDirectory();
-        logDir = Directory(path.join(appDir.path, 'SvnMergeTool', 'logs'));
-      }
+      // 统一使用应用支持目录存放日志
+      // - Windows: %APPDATA%/com.example.SvnMergeTool/logs/
+      // - macOS: ~/Library/Application Support/com.example.SvnMergeTool/logs/
+      // - Linux: ~/.local/share/com.example.SvnMergeTool/logs/
+      final appDir = await getApplicationSupportDirectory();
+      final logDir = Directory(path.join(appDir.path, 'logs'));
 
       // 确保日志目录存在
       if (!await logDir.exists()) {

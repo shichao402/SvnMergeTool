@@ -337,7 +337,20 @@ def sync_version(project_root: Path) -> bool:
 
 
 def copy_config_file(project_root: Path, platform_name: str) -> bool:
-    """复制配置文件到构建输出目录"""
+    """复制配置文件到构建输出目录
+    
+    注意：macOS 不复制配置文件到 .app 包内，因为这会破坏代码签名。
+    macOS 应用从 assets 读取预置配置，用户配置保存在 Application Support 目录。
+    """
+    # macOS 不需要复制配置文件
+    if platform_name == 'macos':
+        msg = "macOS 使用 assets 预置配置，跳过复制配置文件"
+        if logger:
+            logger.info(msg)
+        else:
+            print(f"[INFO] {msg}")
+        return True
+    
     config_source = project_root / 'config' / 'source_urls.json'
     if not config_source.exists():
         msg = f"配置文件不存在: {config_source}"
@@ -350,8 +363,6 @@ def copy_config_file(project_root: Path, platform_name: str) -> bool:
     # 根据平台确定目标目录（使用 pathlib）
     if platform_name == 'windows':
         config_dir = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'config'
-    elif platform_name == 'macos':
-        config_dir = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnMergeTool.app' / 'Contents' / 'Resources' / 'config'
     else:  # linux
         config_dir = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle' / 'config'
     

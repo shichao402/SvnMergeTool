@@ -50,25 +50,33 @@ def create_log_directory(project_root: Path) -> Path:
 
 
 def get_app_support_log_dir() -> Optional[Path]:
-    """获取应用支持目录中的日志目录（打包环境）"""
+    """获取应用支持目录中的日志目录（打包环境）
+    
+    Flutter 的 getApplicationSupportDirectory() 返回的路径：
+    - Windows: %APPDATA%/com.example.SvnMergeTool/
+    - macOS: ~/Library/Application Support/com.example.SvnMergeTool/
+    - Linux: ~/.local/share/com.example.SvnMergeTool/
+    
+    日志存放在该目录下的 logs/ 子目录
+    """
     try:
         if sys.platform == 'win32':
-            # Windows: %APPDATA%\SvnMergeTool\logs
+            # Windows: %APPDATA%/com.example.SvnMergeTool/logs
             appdata = os.getenv('APPDATA')
             if appdata:
-                app_support_dir = Path(appdata) / 'SvnMergeTool' / 'logs'
+                app_support_dir = Path(appdata) / 'com.example.SvnMergeTool' / 'logs'
                 if app_support_dir.exists():
                     return app_support_dir
         elif sys.platform == 'darwin':
-            # macOS: ~/Library/Application Support/SvnMergeTool/logs
+            # macOS: ~/Library/Application Support/com.example.SvnMergeTool/logs
             home = os.path.expanduser('~')
-            app_support_dir = Path(home) / 'Library' / 'Application Support' / 'SvnMergeTool' / 'logs'
+            app_support_dir = Path(home) / 'Library' / 'Application Support' / 'com.example.SvnMergeTool' / 'logs'
             if app_support_dir.exists():
                 return app_support_dir
         elif sys.platform.startswith('linux'):
-            # Linux: ~/.local/share/SvnMergeTool/logs
+            # Linux: ~/.local/share/com.example.SvnMergeTool/logs
             home = os.path.expanduser('~')
-            app_support_dir = Path(home) / '.local' / 'share' / 'SvnMergeTool' / 'logs'
+            app_support_dir = Path(home) / '.local' / 'share' / 'com.example.SvnMergeTool' / 'logs'
             if app_support_dir.exists():
                 return app_support_dir
     except Exception:
@@ -103,9 +111,14 @@ def collect_log_files(project_root: Path, log_dir: Path) -> int:
                 all_log_files.extend(app_support_log_files)
     else:
         # 即使 get_app_support_log_dir() 返回 None，也记录检查的路径
-        appdata = os.getenv('APPDATA')
-        if appdata:
-            app_support_log_dir = Path(appdata) / 'SvnMergeTool' / 'logs'
+        if sys.platform == 'win32':
+            appdata = os.getenv('APPDATA')
+            if appdata:
+                app_support_log_dir = Path(appdata) / 'com.example.SvnMergeTool' / 'logs'
+                checked_paths.append(("应用支持目录", app_support_log_dir))
+        elif sys.platform == 'darwin':
+            home = os.path.expanduser('~')
+            app_support_log_dir = Path(home) / 'Library' / 'Application Support' / 'com.example.SvnMergeTool' / 'logs'
             checked_paths.append(("应用支持目录", app_support_log_dir))
     
     # 3. 检查可执行文件所在目录下的 logs（如果直接运行exe，工作目录是exe所在目录）
@@ -171,21 +184,59 @@ def collect_log_files(project_root: Path, log_dir: Path) -> int:
     return count
 
 
+def get_user_config_dir() -> Optional[Path]:
+    """获取用户配置目录
+    
+    路径：
+    - Windows: %APPDATA%/com.example.SvnMergeTool/config/
+    - macOS: ~/Library/Application Support/com.example.SvnMergeTool/config/
+    - Linux: ~/.local/share/com.example.SvnMergeTool/config/
+    """
+    try:
+        if sys.platform == 'win32':
+            appdata = os.getenv('APPDATA')
+            if appdata:
+                return Path(appdata) / 'com.example.SvnMergeTool' / 'config'
+        elif sys.platform == 'darwin':
+            home = os.path.expanduser('~')
+            return Path(home) / 'Library' / 'Application Support' / 'com.example.SvnMergeTool' / 'config'
+        elif sys.platform.startswith('linux'):
+            home = os.path.expanduser('~')
+            return Path(home) / '.local' / 'share' / 'com.example.SvnMergeTool' / 'config'
+    except Exception:
+        pass
+    return None
+
+
 def collect_config_files(project_root: Path, log_dir: Path):
     """收集配置文件"""
     print("\n收集配置文件...")
     
-    # 收集 assets/config/source_urls.json
+    # 1. 收集预置配置 assets/config/source_urls.json
     assets_config = project_root / "assets" / "config" / "source_urls.json"
     if assets_config.exists():
         try:
-            dest_file = log_dir / "config.json"
+            dest_file = log_dir / "config_preset.json"
             shutil.copy2(assets_config, dest_file)
-            print("  [OK] config.json (来自 assets/config/)")
+            print("  [OK] config_preset.json (预置配置，来自 assets/config/)")
         except Exception as e:
-            print(f"  [警告] 复制 config.json 失败: {e}")
+            print(f"  [警告] 复制预置配置失败: {e}")
     
-    # 收集 config/source_urls.json
+    # 2. 收集用户配置（Application Support 目录）
+    user_config_dir = get_user_config_dir()
+    if user_config_dir:
+        user_config = user_config_dir / "source_urls.json"
+        if user_config.exists():
+            try:
+                dest_file = log_dir / "config_user.json"
+                shutil.copy2(user_config, dest_file)
+                print(f"  [OK] config_user.json (用户配置，来自 {user_config_dir})")
+            except Exception as e:
+                print(f"  [警告] 复制用户配置失败: {e}")
+        else:
+            print(f"  [信息] 用户配置不存在: {user_config}")
+    
+    # 3. 收集开发环境配置 config/source_urls.json（兼容旧版）
     runtime_config = project_root / "config" / "source_urls.json"
     if runtime_config.exists():
         try:

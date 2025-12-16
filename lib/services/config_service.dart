@@ -1,11 +1,17 @@
 /// 配置管理服务
 ///
-/// 负责加载和管理应用配置文件（config/source_urls.json）
+/// 负责加载和管理应用配置文件
+/// 
+/// 配置文件策略：
+/// - 预置配置（只读）：打包在 assets/config/source_urls.json
+/// - 用户配置（可写）：保存在 Application Support 目录
+/// - 读取优先级：用户配置 > 预置配置
 
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import '../models/app_config.dart';
 import 'logger_service.dart';
 
@@ -16,93 +22,69 @@ class ConfigService {
   ConfigService._internal();
 
   AppConfig? _config;
+  
+  /// 用户配置文件路径缓存
+  String? _userConfigPath;
 
-  /// 获取配置目录
+  /// 获取用户配置目录（可写）
   /// 
-  /// 规则：
-  /// - 开发环境：项目根目录/config/
-  /// - 打包环境：可执行文件所在目录/config/
-  String getConfigDir() {
-    // 获取可执行文件所在目录
-    final executable = Platform.resolvedExecutable;
-    final execDir = path.dirname(executable);
-    
-    // 策略1：尝试项目根目录（开发环境）
-    // 从可执行文件目录向上查找，直到找到包含 pubspec.yaml 的目录
-    String? findProjectRoot(String startDir) {
-      var current = Directory(startDir);
-      for (var i = 0; i < 10; i++) {  // 最多向上查找10层
-        final pubspec = File(path.join(current.path, 'pubspec.yaml'));
-        final configDir = Directory(path.join(current.path, 'config'));
-        
-        if (pubspec.existsSync() && configDir.existsSync()) {
-          return path.join(current.path, 'config');
-        }
-        
-        final parent = current.parent;
-        if (parent.path == current.path) break;  // 到达根目录
-        current = parent;
-      }
-      return null;
-    }
-    
-    // 先尝试找项目根目录（开发环境）
-    final projectConfig = findProjectRoot(execDir);
-    if (projectConfig != null) {
-      return projectConfig;
-    }
-    
-    // 策略2：macOS App Bundle 特殊处理（打包环境）
-    if (Platform.isMacOS && execDir.contains('.app/Contents/MacOS')) {
-      // .app/Contents/MacOS -> .app/Contents/Resources/config
-      final appContents = execDir.replaceAll('/MacOS', '');
-      final resourcesConfig = path.join(appContents, 'Resources', 'config');
-      if (Directory(resourcesConfig).existsSync()) {
-        return resourcesConfig;
-      }
-      // 备用：MacOS 目录下
-      return path.join(execDir, 'config');
-    }
-    
-    // 策略3：Windows/Linux 打包环境
-    return path.join(execDir, 'config');
+  /// 路径：
+  /// - Windows: %APPDATA%/com.example.SvnMergeTool/config/
+  /// - macOS: ~/Library/Application Support/com.example.SvnMergeTool/config/
+  /// - Linux: ~/.local/share/com.example.SvnMergeTool/config/
+  Future<String> getUserConfigDir() async {
+    final appDir = await getApplicationSupportDirectory();
+    return path.join(appDir.path, 'config');
   }
 
-  /// 获取配置文件路径
-  String getConfigFilePath() {
-    return path.join(getConfigDir(), 'source_urls.json');
+  /// 获取用户配置文件路径
+  Future<String> getUserConfigFilePath() async {
+    if (_userConfigPath != null) {
+      return _userConfigPath!;
+    }
+    final configDir = await getUserConfigDir();
+    _userConfigPath = path.join(configDir, 'source_urls.json');
+    return _userConfigPath!;
   }
 
   /// 加载配置文件
+  /// 
+  /// 优先级：
+  /// 1. 用户配置（Application Support 目录）
+  /// 2. 预置配置（assets）
   Future<AppConfig> loadConfig() async {
     if (_config != null) {
       return _config!;
     }
     
     try {
-      // 策略1: 尝试从 assets 加载（推荐，避免沙箱权限问题）
       String content;
-      try {
-        content = await rootBundle.loadString('assets/config/source_urls.json');
-        AppLogger.config.info('从 assets 加载配置文件成功');
-      } catch (assetsError) {
-        AppLogger.config.warn('从 assets 加载配置失败：$assetsError');
-        
-        // 策略2: 尝试从外部文件加载
-        final configFile = File(getConfigFilePath());
-        if (await configFile.exists()) {
-          content = await configFile.readAsString();
-          AppLogger.config.info('从外部文件加载配置：${configFile.path}');
-        } else {
-          AppLogger.config.warn('配置文件不存在：${configFile.path}');
-          throw Exception('配置文件不存在');
+      String source;
+      
+      // 策略1: 优先从用户配置目录加载
+      final userConfigPath = await getUserConfigFilePath();
+      final userConfigFile = File(userConfigPath);
+      
+      if (await userConfigFile.exists()) {
+        content = await userConfigFile.readAsString();
+        source = '用户配置';
+        AppLogger.config.info('从用户配置加载：$userConfigPath');
+      } else {
+        // 策略2: 从 assets 加载预置配置
+        try {
+          content = await rootBundle.loadString('assets/config/source_urls.json');
+          source = '预置配置';
+          AppLogger.config.info('从预置配置加载（assets）');
+        } catch (assetsError) {
+          AppLogger.config.warn('预置配置加载失败：$assetsError');
+          throw Exception('无法加载配置文件');
         }
       }
       
       final json = jsonDecode(content) as Map<String, dynamic>;
       _config = AppConfig.fromJson(json);
       
-      AppLogger.config.info('配置加载成功：${_config!.sourceUrls.length} 个源 URL');
+      AppLogger.config.info('配置加载成功（$source）：${_config!.sourceUrls.length} 个源 URL');
       for (var url in _config!.enabledSourceUrls) {
         AppLogger.config.info('  - ${url.name}: ${url.url}');
       }
@@ -117,9 +99,10 @@ class ConfigService {
     }
   }
 
-  /// 保存配置文件
+  /// 保存配置文件（始终保存到用户配置目录）
   Future<void> saveConfig(AppConfig config) async {
-    final configFile = File(getConfigFilePath());
+    final configPath = await getUserConfigFilePath();
+    final configFile = File(configPath);
     
     try {
       // 确保目录存在
@@ -131,7 +114,7 @@ class ConfigService {
       await configFile.writeAsString(content);
       
       _config = config;
-      AppLogger.config.info('配置已保存到：${configFile.path}');
+      AppLogger.config.info('配置已保存到用户目录：$configPath');
     } catch (e, stackTrace) {
       AppLogger.config.error('保存配置文件失败', e, stackTrace);
       rethrow;
