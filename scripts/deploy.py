@@ -14,6 +14,11 @@ SVN Auto Merge Tool - Deploy Script (跨平台 Python 实现)
 - 必须使用 pathlib.Path 处理所有路径
 - 严禁手动拼装路径分隔符（/ 或 \）
 - 严禁手动处理盘符或绝对路径前缀
+
+日志规范：
+- 所有输出同时写入日志文件
+- AI 必须通过日志文件判断执行结果
+- 日志文件位置：logs/scripts/deploy_latest.log
 """
 
 import sys
@@ -22,6 +27,13 @@ import shutil
 import platform
 from pathlib import Path
 from typing import Optional, List, Tuple
+
+# 添加 lib 目录到路径
+sys.path.insert(0, str(Path(__file__).parent / 'lib'))
+from script_logger import ScriptLogger
+
+# 全局日志记录器
+logger: Optional[ScriptLogger] = None
 
 
 def get_project_root() -> Path:
@@ -33,7 +45,10 @@ def get_project_root() -> Path:
 
 def kill_existing_processes():
     """杀掉所有正在运行的 SvnMergeTool 进程"""
-    print("Stopping existing SvnMergeTool processes...")
+    if logger:
+        logger.info("停止现有 SvnMergeTool 进程...")
+    else:
+        print("Stopping existing SvnMergeTool processes...")
     
     system = platform.system()
     killed_count = 0
@@ -52,15 +67,11 @@ def kill_existing_processes():
             if result.returncode == 0:
                 # 统计杀掉的进程数
                 killed_count = result.stdout.count('SUCCESS') + result.stdout.count('成功')
-                if killed_count > 0:
-                    print(f"[OK] Stopped {killed_count} existing process(es)")
-                else:
-                    print("[OK] No existing processes found")
+                msg = f"已停止 {killed_count} 个进程" if killed_count > 0 else "没有找到运行中的进程"
             elif 'not found' in result.stderr.lower() or '没有找到' in result.stderr or '找不到' in result.stderr:
-                print("[OK] No existing processes found")
+                msg = "没有找到运行中的进程"
             else:
-                # 其他错误，但不阻止部署
-                print("[OK] No existing processes to stop")
+                msg = "没有需要停止的进程"
         else:
             # macOS/Linux: 使用 pkill 命令
             result = subprocess.run(
@@ -70,12 +81,20 @@ def kill_existing_processes():
                 check=False
             )
             if result.returncode == 0:
-                print("[OK] Stopped existing processes")
+                msg = "已停止现有进程"
             else:
-                print("[OK] No existing processes found")
+                msg = "没有找到运行中的进程"
+        
+        if logger:
+            logger.info(msg)
+        else:
+            print(f"[OK] {msg}")
     except Exception as e:
-        print(f"[WARNING] Failed to stop processes: {e}")
-        # 不阻止部署继续
+        msg = f"停止进程失败: {e}"
+        if logger:
+            logger.warn(msg)
+        else:
+            print(f"[WARNING] {msg}")
 
 
 def is_wsl() -> bool:
@@ -121,16 +140,20 @@ def check_flutter_environment() -> Tuple[Optional[str], Optional[str]]:
     """检查 Flutter 环境"""
     # 检查是否在 WSL 中
     if is_wsl():
-        print("[ERROR] Flutter does not support building in WSL")
-        print("Please use the Windows deployment script instead:")
-        print("  scripts\\deploy.bat")
-        print()
-        print("Or run from Windows PowerShell/CMD:")
-        print("  cd D:\\workspace\\GitHub\\SvnMergeTool")
-        print("  scripts\\deploy.bat")
+        msg = "Flutter 不支持在 WSL 中构建"
+        if logger:
+            logger.error(msg)
+            logger.info("请使用 Windows 部署脚本: scripts\\deploy.bat")
+        else:
+            print(f"[ERROR] {msg}")
+            print("Please use the Windows deployment script instead:")
+            print("  scripts\\deploy.bat")
         return None, None
     
-    print("Checking Flutter environment...")
+    if logger:
+        logger.info("检查 Flutter 环境...")
+    else:
+        print("Checking Flutter environment...")
     
     # 查找系统 Flutter
     flutter_cmd = find_command('flutter')
@@ -144,8 +167,6 @@ def check_flutter_environment() -> Tuple[Optional[str], Optional[str]]:
         try:
             # 在 Windows 上，使用 shell=True 确保能访问系统 PATH
             if platform.system() == 'Windows':
-                # 使用 shell=True 和命令字符串，让系统解析 PATH
-                # 在 Windows 上使用 UTF-8 编码避免中文乱码
                 result = subprocess.run(
                     'flutter --version',
                     shell=True,
@@ -166,33 +187,34 @@ def check_flutter_environment() -> Tuple[Optional[str], Optional[str]]:
                 )
             if result.returncode == 0:
                 version_line = result.stdout.split('\n')[0]
-                print(f"[OK] Flutter environment is ready")
-                # 安全地打印版本信息，避免编码错误
-                try:
+                if logger:
+                    logger.info("Flutter 环境就绪")
+                    logger.info(f"版本: {version_line}")
+                else:
+                    print(f"[OK] Flutter environment is ready")
                     print(f"  {version_line}")
-                except UnicodeEncodeError:
-                    # 如果编码失败，使用 ASCII 安全的方式
-                    print(f"  {version_line.encode('ascii', 'replace').decode('ascii')}")
-                # 在 Windows 上返回命令名，系统会自动解析
                 return 'flutter', version_line
         except Exception as e:
-            # 安全地打印错误信息
-            try:
-                print(f"[DEBUG] Flutter version check failed: {e}")
-            except UnicodeEncodeError:
-                print(f"[DEBUG] Flutter version check failed: {str(e).encode('ascii', 'replace').decode('ascii')}")
+            if logger:
+                logger.debug(f"Flutter 版本检查失败: {e}")
             pass
     
-    print("[ERROR] Flutter CLI not found")
-    print("Please install Flutter")
-    print("Options:")
-    print("  1. Install Flutter: https://docs.flutter.dev/get-started/install")
+    msg = "未找到 Flutter CLI"
+    if logger:
+        logger.error(msg)
+        logger.info("请安装 Flutter: https://docs.flutter.dev/get-started/install")
+    else:
+        print(f"[ERROR] {msg}")
+        print("Please install Flutter: https://docs.flutter.dev/get-started/install")
     return None, None
 
 
 def check_devices(flutter_cmd: str) -> Tuple[int, bool]:
     """检查可用设备"""
-    print("\nChecking available devices...")
+    if logger:
+        logger.info("检查可用设备...")
+    else:
+        print("\nChecking available devices...")
     
     try:
         # 在 Windows 上，如果 flutter_cmd 是 'flutter'，使用 shell=True
@@ -220,16 +242,27 @@ def check_devices(flutter_cmd: str) -> Tuple[int, bool]:
         if result.returncode == 0:
             device_count = result.stdout.count('"deviceId"')
             if device_count == 0:
-                print("[WARNING] No available devices detected")
-                print("For Windows desktop app, we will build only (no install/run needed)")
+                msg = "未检测到可用设备，将仅构建（桌面应用无需设备）"
+                if logger:
+                    logger.info(msg)
+                else:
+                    print(f"[WARNING] {msg}")
                 return 0, True
             else:
-                print(f"[OK] Detected {device_count} available device(s)")
+                msg = f"检测到 {device_count} 个可用设备"
+                if logger:
+                    logger.info(msg)
+                else:
+                    print(f"[OK] {msg}")
                 return device_count, False
     except Exception:
         pass
     
-    print("[WARNING] No available devices detected")
+    msg = "未检测到可用设备"
+    if logger:
+        logger.info(msg)
+    else:
+        print(f"[WARNING] {msg}")
     return 0, True
 
 
@@ -248,13 +281,20 @@ def detect_platform() -> str:
 
 def sync_version(project_root: Path) -> bool:
     """同步版本号"""
-    print("\nSyncing version number...")
+    if logger:
+        logger.info("同步版本号...")
+    else:
+        print("\nSyncing version number...")
     
     script_dir = Path(__file__).parent
     version_script = script_dir / 'version.bat' if platform.system() == 'Windows' else script_dir / 'version.sh'
     
     if not version_script.exists():
-        print("[WARNING] Version management script not found, skipping version sync")
+        msg = "版本管理脚本不存在，跳过版本同步"
+        if logger:
+            logger.warn(msg)
+        else:
+            print(f"[WARNING] {msg}")
         return False
     
     try:
@@ -274,13 +314,25 @@ def sync_version(project_root: Path) -> bool:
             )
         
         if result.returncode == 0:
-            print("[OK] Version synced")
+            msg = "版本同步完成"
+            if logger:
+                logger.info(msg)
+            else:
+                print(f"[OK] {msg}")
             return True
         else:
-            print("[WARNING] Version sync failed, continuing")
+            msg = "版本同步失败，继续执行"
+            if logger:
+                logger.warn(msg)
+            else:
+                print(f"[WARNING] {msg}")
             return False
     except Exception as e:
-        print(f"[WARNING] Version sync failed: {e}, continuing")
+        msg = f"版本同步失败: {e}，继续执行"
+        if logger:
+            logger.warn(msg)
+        else:
+            print(f"[WARNING] {msg}")
         return False
 
 
@@ -288,7 +340,11 @@ def copy_config_file(project_root: Path, platform_name: str) -> bool:
     """复制配置文件到构建输出目录"""
     config_source = project_root / 'config' / 'source_urls.json'
     if not config_source.exists():
-        print(f"[WARNING] Config file not found: {config_source}")
+        msg = f"配置文件不存在: {config_source}"
+        if logger:
+            logger.warn(msg)
+        else:
+            print(f"[WARNING] {msg}")
         return False
     
     # 根据平台确定目标目录（使用 pathlib）
@@ -303,18 +359,29 @@ def copy_config_file(project_root: Path, platform_name: str) -> bool:
         config_dir.mkdir(parents=True, exist_ok=True)
         dest_file = config_dir / 'source_urls.json'
         shutil.copy2(config_source, dest_file)
-        print(f"[OK] Config file copied to build output")
+        msg = "配置文件已复制到构建输出目录"
+        if logger:
+            logger.info(msg)
+        else:
+            print(f"[OK] {msg}")
         return True
     except Exception as e:
-        print(f"[WARNING] Failed to copy config file: {e}")
+        msg = f"复制配置文件失败: {e}"
+        if logger:
+            logger.warn(msg)
+        else:
+            print(f"[WARNING] {msg}")
         return False
 
 
 def run_flutter_command(flutter_cmd: str, args: List[str], check: bool = True) -> bool:
     """运行 Flutter 命令"""
+    cmd_str = f"flutter {' '.join(args)}"
+    if logger:
+        logger.command(cmd_str)
+    
     # 在 Windows 上，如果 flutter_cmd 是 'flutter'，使用 shell=True
     if platform.system() == 'Windows' and flutter_cmd == 'flutter':
-        cmd_str = 'flutter ' + ' '.join(args)
         try:
             result = subprocess.run(
                 cmd_str,
@@ -326,10 +393,18 @@ def run_flutter_command(flutter_cmd: str, args: List[str], check: bool = True) -
             )
             return result.returncode == 0
         except subprocess.TimeoutExpired:
-            print(f"[ERROR] Command timeout: {cmd_str}")
+            msg = f"命令超时: {cmd_str}"
+            if logger:
+                logger.error(msg)
+            else:
+                print(f"[ERROR] {msg}")
             return False
         except Exception as e:
-            print(f"[ERROR] Command failed: {e}")
+            msg = f"命令失败: {e}"
+            if logger:
+                logger.error(msg)
+            else:
+                print(f"[ERROR] {msg}")
             return False
     else:
         cmd = flutter_cmd.split() + args
@@ -341,19 +416,25 @@ def run_flutter_command(flutter_cmd: str, args: List[str], check: bool = True) -
             )
             return result.returncode == 0
         except subprocess.TimeoutExpired:
-            print(f"[ERROR] Command timeout: {' '.join(cmd)}")
+            msg = f"命令超时: {' '.join(cmd)}"
+            if logger:
+                logger.error(msg)
+            else:
+                print(f"[ERROR] {msg}")
             return False
         except Exception as e:
-            print(f"[ERROR] Command failed: {e}")
+            msg = f"命令失败: {e}"
+            if logger:
+                logger.error(msg)
+            else:
+                print(f"[ERROR] {msg}")
             return False
 
 
 def main():
     """主函数"""
-    print("=" * 40)
-    print("  SVN Auto Merge Tool - Deploy Script")
-    print("=" * 40)
-    print()
+    global logger
+    logger = ScriptLogger("deploy")
     
     project_root = get_project_root()
     
@@ -361,96 +442,99 @@ def main():
     import os
     os.chdir(str(project_root))
     
-    # 杀掉所有正在运行的 SvnMergeTool 进程
-    kill_existing_processes()
+    # 步骤计数
+    total_steps = 7
+    current_step = 0
     
-    # 检查 Flutter 环境
+    # 步骤 1: 杀掉所有正在运行的 SvnMergeTool 进程
+    current_step += 1
+    logger.step(current_step, total_steps, "停止现有进程")
+    kill_existing_processes()
+    logger.step_done(current_step, total_steps)
+    
+    # 步骤 2: 检查 Flutter 环境
+    current_step += 1
+    logger.step(current_step, total_steps, "检查 Flutter 环境")
     flutter_cmd, flutter_version = check_flutter_environment()
     if not flutter_cmd:
+        logger.failed("Flutter 环境检查失败")
         sys.exit(1)
+    logger.step_done(current_step, total_steps)
     
-    # 检查设备
+    # 步骤 3: 检查设备
+    current_step += 1
+    logger.step(current_step, total_steps, "检查可用设备")
     device_count, build_only = check_devices(flutter_cmd)
+    logger.step_done(current_step, total_steps)
     
     # 检测平台
     platform_name = detect_platform()
-    print(f"\nTarget platform: {platform_name}")
+    logger.info(f"目标平台: {platform_name}")
     
-    # 清理之前的构建
-    print("\nCleaning previous build...")
+    # 步骤 4: 清理之前的构建
+    current_step += 1
+    logger.step(current_step, total_steps, "清理之前的构建")
     if not run_flutter_command(flutter_cmd, ['clean'], check=False):
-        print("[WARNING] Clean failed, continuing")
-    else:
-        print("[OK] Clean completed")
+        logger.warn("清理失败，继续执行")
+    logger.step_done(current_step, total_steps)
     
     # 同步版本号
     sync_version(project_root)
     
-    # 获取依赖
-    print("\nGetting dependencies...")
+    # 步骤 5: 获取依赖
+    current_step += 1
+    logger.step(current_step, total_steps, "获取依赖")
     if not run_flutter_command(flutter_cmd, ['pub', 'get']):
-        print("[ERROR] Failed to get dependencies")
+        logger.failed("获取依赖失败")
         sys.exit(1)
-    print("[OK] Dependencies retrieved")
+    logger.step_done(current_step, total_steps)
     
-    # 构建应用
-    print("\nBuilding application...")
+    # 步骤 6: 构建应用
+    current_step += 1
+    logger.step(current_step, total_steps, "构建应用")
     build_args = ['build', platform_name, '--debug']
+    logger.command(f"flutter {' '.join(build_args)}")
     if not run_flutter_command(flutter_cmd, build_args):
-        print("[ERROR] Build failed")
+        logger.failed("构建失败")
         sys.exit(1)
-    print("[OK] Build completed")
+    logger.step_done(current_step, total_steps)
     
     # 复制配置文件
     copy_config_file(project_root, platform_name)
     
     # 显示构建输出位置
-    print()
-    print("Application location:")
     if platform_name == 'windows':
         exe_path = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'SvnMergeTool.exe'
-        print(f"  {exe_path}")
+        logger.info(f"应用位置: {exe_path}")
     elif platform_name == 'macos':
         app_bundle = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnMergeTool.app'
-        print(f"  {app_bundle}")
+        logger.info(f"应用位置: {app_bundle}")
     else:
         bundle_dir = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle'
-        print(f"  {bundle_dir}")
+        logger.info(f"应用位置: {bundle_dir}")
     
-    print("Config file location:")
-    if platform_name == 'windows':
-        config_path = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'config' / 'source_urls.json'
-    elif platform_name == 'macos':
-        config_path = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnMergeTool.app' / 'Contents' / 'Resources' / 'config' / 'source_urls.json'
-    else:
-        config_path = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle' / 'config' / 'source_urls.json'
-    print(f"  {config_path}")
-    
-    # 如果只构建，则退出
+    # 步骤 7: 启动应用（如果不是仅构建模式）
+    current_step += 1
     if build_only:
-        print()
-        print("[OK] Build completed!")
+        logger.step(current_step, total_steps, "跳过启动（仅构建模式）")
+        logger.step_done(current_step, total_steps)
+        logger.success("部署完成（仅构建）")
         sys.exit(0)
     
+    logger.step(current_step, total_steps, "启动应用")
+    
     # 安装到设备
-    print("\nInstalling to device...")
+    logger.info("安装到设备...")
     if not run_flutter_command(flutter_cmd, ['install'], check=False):
-        print("[WARNING] Install failed, but continuing")
-    else:
-        print("[OK] Install completed")
+        logger.warn("安装失败，但继续执行")
     
     # 启动应用
-    print("\nLaunching application...")
+    logger.info("启动应用...")
     if not run_flutter_command(flutter_cmd, ['run'], check=False):
-        print("[WARNING] Application launch failed")
-        sys.exit(1)
-    print("[OK] Application launched")
+        logger.warn("应用启动失败")
     
-    print()
-    print("=" * 40)
-    print("  Deployment completed!")
-    print("=" * 40)
-    print()
+    logger.step_done(current_step, total_steps)
+    logger.success("部署完成")
 
 
 if __name__ == '__main__':
@@ -458,11 +542,21 @@ if __name__ == '__main__':
         main()
         sys.exit(0)
     except KeyboardInterrupt:
-        print("\n\n[警告] 用户中断")
+        if logger:
+            logger.warn("用户中断")
+            logger.failed("用户中断")
+        else:
+            print("\n\n[警告] 用户中断")
         sys.exit(1)
     except Exception as e:
-        print(f"\n[错误] 部署失败: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        if logger:
+            logger.error(f"部署失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            logger.failed(str(e))
+        else:
+            print(f"\n[错误] 部署失败: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 

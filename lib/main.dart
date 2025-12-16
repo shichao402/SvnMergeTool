@@ -6,7 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/app_state.dart';
-import 'providers/merge_state.dart';
+import 'providers/pipeline_merge_state.dart';
 import 'services/svn_service.dart';
 import 'services/storage_service.dart';
 import 'services/logger_service.dart';
@@ -75,7 +75,7 @@ class SvnMergeToolApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
-        ChangeNotifierProvider(create: (_) => MergeState()),
+        ChangeNotifierProvider(create: (_) => PipelineMergeState()),
       ],
       child: MaterialApp(
         title: 'SVN 自动合并工具',
@@ -109,7 +109,7 @@ class _AppInitializerState extends State<AppInitializer> {
 
   Future<void> _init() async {
     final appState = Provider.of<AppState>(context, listen: false);
-    final mergeState = Provider.of<MergeState>(context, listen: false);
+    final mergeState = Provider.of<PipelineMergeState>(context, listen: false);
 
     await appState.init();
     await mergeState.init();

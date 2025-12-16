@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/app_state.dart';
-import '../providers/merge_state.dart';
+import '../providers/pipeline_merge_state.dart';
+import '../pipeline/pipeline.dart';
 import '../models/app_config.dart' show PreloadSettings;
 import '../models/log_entry.dart';
 import '../models/merge_job.dart';
@@ -786,7 +787,7 @@ class _MainScreenState extends State<MainScreen> {
   /// 开始合并
   Future<void> _startMerge() async {
     final appState = Provider.of<AppState>(context, listen: false);
-    final mergeState = Provider.of<MergeState>(context, listen: false);
+    final mergeState = Provider.of<PipelineMergeState>(context, listen: false);
 
     final sourceUrl = _sourceUrlController.text.trim();
     final targetWc = _targetWcController.text.trim();
@@ -1969,7 +1970,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBottomSection() {
-    return Consumer<MergeState>(
+    return Consumer<PipelineMergeState>(
       builder: (context, mergeState, _) {
         final hasPausedJob = mergeState.hasPausedJob;
         final pausedJob = mergeState.pausedJob;
@@ -2149,11 +2150,11 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ],
 
-              // 内容区域（任务列表 + 日志）
+              // 内容区域（任务列表 + Pipeline状态 + 日志）
               Expanded(
                 child: Row(
                   children: [
-                    // 左侧：任务列表
+                    // 左侧：任务列表 + Pipeline 状态
                     Expanded(
                       flex: 1,
                       child: Container(
@@ -2176,6 +2177,9 @@ class _MainScreenState extends State<MainScreen> {
                                 ),
                               ),
                             ),
+                            // Pipeline 状态显示
+                            if (mergeState.pipelineState != null)
+                              _buildPipelineStatusWidget(mergeState),
                             Expanded(
                               child: mergeState.activeJobs.isEmpty
                                   ? Center(
@@ -2303,7 +2307,7 @@ class _MainScreenState extends State<MainScreen> {
   }
   
   /// 确认跳过当前 revision
-  Future<void> _confirmSkipRevision(MergeState mergeState, MergeJob job) async {
+  Future<void> _confirmSkipRevision(PipelineMergeState mergeState, MergeJob job) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2333,7 +2337,7 @@ class _MainScreenState extends State<MainScreen> {
   }
   
   /// 确认取消任务
-  Future<void> _confirmCancelJob(MergeState mergeState, MergeJob job) async {
+  Future<void> _confirmCancelJob(PipelineMergeState mergeState, MergeJob job) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2362,5 +2366,173 @@ class _MainScreenState extends State<MainScreen> {
     if (confirmed == true) {
       await mergeState.cancelPausedJob();
     }
+  }
+
+  /// 构建 Pipeline 状态组件
+  Widget _buildPipelineStatusWidget(PipelineMergeState mergeState) {
+    final state = mergeState.pipelineState;
+    if (state == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _getPipelineStatusColor(state.status).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: _getPipelineStatusColor(state.status).withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题栏
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: [
+                _buildPipelineStatusIcon(state.status),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Pipeline: ${state.config.name}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${(state.progress * 100).toInt()}%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 进度条
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: PipelineProgressBar(
+              state: state,
+              showLabels: false,
+              compact: true,
+            ),
+          ),
+          // 当前阶段
+          if (state.currentStage != null)
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                '当前: ${state.currentStage!.name}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
+          // 控制按钮（仅在暂停时显示）
+          if (state.status == PipelineStatus.paused)
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (mergeState.canResume)
+                    _buildPipelineButton(
+                      icon: Icons.play_arrow,
+                      label: '继续',
+                      color: Colors.green,
+                      onPressed: () => mergeState.resumePausedJob(),
+                    ),
+                  _buildPipelineButton(
+                    icon: Icons.skip_next,
+                    label: '跳过',
+                    color: Colors.orange,
+                    onPressed: () => mergeState.skipCurrentStage(),
+                  ),
+                  if (mergeState.canRollback)
+                    _buildPipelineButton(
+                      icon: Icons.undo,
+                      label: '回滚',
+                      color: Colors.blue,
+                      onPressed: () => mergeState.rollback(),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 获取 Pipeline 状态颜色
+  Color _getPipelineStatusColor(PipelineStatus status) {
+    switch (status) {
+      case PipelineStatus.running:
+        return Colors.blue;
+      case PipelineStatus.paused:
+        return Colors.orange;
+      case PipelineStatus.completed:
+        return Colors.green;
+      case PipelineStatus.failed:
+        return Colors.red;
+      case PipelineStatus.cancelled:
+        return Colors.grey;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  /// 构建 Pipeline 状态图标
+  Widget _buildPipelineStatusIcon(PipelineStatus status) {
+    IconData icon;
+    Color color = _getPipelineStatusColor(status);
+
+    switch (status) {
+      case PipelineStatus.running:
+        icon = Icons.play_circle;
+        break;
+      case PipelineStatus.paused:
+        icon = Icons.pause_circle;
+        break;
+      case PipelineStatus.completed:
+        icon = Icons.check_circle;
+        break;
+      case PipelineStatus.failed:
+        icon = Icons.error;
+        break;
+      case PipelineStatus.cancelled:
+        icon = Icons.cancel;
+        break;
+      default:
+        icon = Icons.schedule;
+    }
+
+    return Icon(icon, size: 16, color: color);
+  }
+
+  /// 构建 Pipeline 控制按钮
+  Widget _buildPipelineButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 28,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 14),
+        label: Text(label, style: const TextStyle(fontSize: 11)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+      ),
+    );
   }
 }
