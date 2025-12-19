@@ -1,0 +1,3 @@
+[submodule "packages/vyuh_node_flow"]
+	path = packages/vyuh_node_flow
+	url = https://github.com/vyuh-tech/vyuh_node_flow.git
