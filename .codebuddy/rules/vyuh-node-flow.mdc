@@ -1,0 +1,171 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2025-12-19T09:31:25.318Z
+provider: 
+---
+
+# vyuh_node_flow 流图组件规则
+
+## 组件概述
+
+本项目使用 `vyuh_node_flow` 作为流程图编辑和显示组件。该组件已作为 Git 子模块添加到项目中。
+
+## 源码位置
+
+```
+packages/vyuh_node_flow/                    # 子模块根目录
+├── packages/vyuh_node_flow/                # 核心库
+│   ├── README.md                           # 详细文档（88KB，必读）
+│   ├── lib/vyuh_node_flow.dart             # 主入口，包含所有导出
+│   ├── lib/annotations/                    # 注解（便签、分组等）
+│   ├── lib/connections/                    # 连接线相关
+│   ├── lib/graph/                          # 图核心（Controller、Node、Connection）
+│   ├── lib/grid/                           # 网格背景
+│   ├── lib/nodes/                          # 节点相关
+│   ├── lib/ports/                          # 端口相关
+│   └── lib/shared/                         # 共享工具
+└── packages/demo/                          # 示例应用
+```
+
+## 核心 API
+
+### NodeFlowController<T>
+流程控制器，管理所有状态：
+
+```dart
+// 节点操作
+controller.addNode(node);
+controller.removeNode(nodeId);
+controller.getNode(nodeId);
+controller.setNodePosition(nodeId, position);
+
+// 连接操作
+controller.addConnection(connection);
+controller.removeConnection(connectionId);
+controller.getConnectionsForNode(nodeId);
+
+// 选择操作
+controller.selectNode(nodeId);
+controller.selectNodes([nodeId1, nodeId2]);
+controller.clearSelection();
+
+// 视口操作
+controller.setViewport(viewport);
+controller.zoomBy(delta);
+controller.fitToView();
+controller.centerOnNode(nodeId);
+
+// 序列化
+controller.exportGraph();
+controller.loadGraph(graph);
+controller.clearGraph();
+```
+
+### Node<T>
+节点模型：
+
+```dart
+Node<T>(
+  id: 'node-1',
+  type: 'process',
+  position: Offset(100, 100),
+  data: myData,  // 自定义数据
+  inputPorts: [Port(id: 'in', name: 'Input', position: PortPosition.left)],
+  outputPorts: [Port(id: 'out', name: 'Output', position: PortPosition.right)],
+  visible: true,
+)
+```
+
+### Port
+端口定义：
+
+```dart
+Port(
+  id: 'port-1',
+  name: 'Input',
+  position: PortPosition.left,  // left, right, top, bottom
+  offset: Offset(-2, 40),       // 位置偏移（负值向外）
+  type: PortType.target,        // source, target, both
+  shape: MarkerShapes.capsuleHalf,
+  multiConnections: false,
+  maxConnections: 1,
+)
+```
+
+### Connection
+连接定义：
+
+```dart
+Connection(
+  id: 'conn-1',
+  sourceNodeId: 'node-1',
+  sourcePortId: 'out',
+  targetNodeId: 'node-2',
+  targetPortId: 'in',
+  label: ConnectionLabel.center(text: 'Flow'),
+  style: ConnectionStyles.smoothstep,
+  animationEffect: ConnectionEffects.flowingDash,
+)
+```
+
+### 行为模式
+
+```dart
+NodeFlowEditor<T>(
+  controller: controller,
+  behavior: NodeFlowBehavior.design,   // 完整编辑
+  // behavior: NodeFlowBehavior.preview,  // 只读可导航
+  // behavior: NodeFlowBehavior.present,  // 纯展示
+)
+```
+
+## AI 使用规则
+
+### 必须遵守
+
+1. **修改流图相关代码前**，必须先阅读：
+   - `packages/vyuh_node_flow/packages/vyuh_node_flow/README.md` - 完整 API 文档
+   - 相关源码文件了解实现细节
+
+2. **使用组件功能时**，优先查阅：
+   - `lib/graph/` - Controller、Node、Connection 核心实现
+   - `lib/ports/` - 端口系统
+   - `lib/connections/` - 连接样式和动画
+
+3. **遇到问题时**，参考：
+   - `packages/demo/` - 官方示例代码
+   - 源码中的注释和类型定义
+
+### 端口命名约定（本项目）
+
+| 端口类型 | ID | 说明 |
+|---------|-----|------|
+| 输入 | `in` | 标准输入端口 |
+| 成功输出 | `success` | 执行成功出口 |
+| 失败输出 | `failure` | 执行失败出口 |
+
+### 序列化
+
+```dart
+// 导出
+final graph = controller.exportGraph();
+final json = graph.toJson((data) => data.toJson());
+
+// 导入
+final graph = NodeGraph.fromJson(json, (data) => MyData.fromJson(data));
+controller.loadGraph(graph);
+```
+
+## 禁止行为
+
+- ❌ 不阅读文档就修改流图代码
+- ❌ 猜测 API 用法而不查阅源码
+- ❌ 忽略组件提供的内置功能而重复实现
+
+## 参考资源
+
+- 在线文档: https://pub.dev/packages/vyuh_node_flow
+- 在线演示: https://flow.demo.vyuh.tech
+- 本地源码: `packages/vyuh_node_flow/`

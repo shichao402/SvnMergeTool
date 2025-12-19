@@ -10,7 +10,10 @@ import 'providers/pipeline_merge_state.dart';
 import 'services/svn_service.dart';
 import 'services/storage_service.dart';
 import 'services/logger_service.dart';
-import 'screens/main_screen.dart';
+import 'services/standard_flow_service.dart';
+import 'screens/main_screen_v3.dart';
+import 'pipeline/executors/builtin/builtin_registry.dart';
+import 'pipeline/executors/generic/user_node_loader.dart';
 
 void main() async {
   // 捕获所有未处理的异步异常
@@ -54,6 +57,34 @@ void main() async {
       AppLogger.app.info('存储服务初始化成功');
     } catch (e, stackTrace) {
       AppLogger.app.error('存储服务初始化失败', e, stackTrace);
+    }
+
+    // 注册内置节点类型
+    try {
+      registerBuiltinNodeTypes();
+      AppLogger.app.info('内置节点类型注册成功');
+    } catch (e, stackTrace) {
+      AppLogger.app.error('内置节点类型注册失败', e, stackTrace);
+    }
+
+    // 加载用户自定义节点
+    try {
+      final count = await UserNodeLoader.loadAndRegisterUserNodes();
+      if (count > 0) {
+        AppLogger.app.info('已加载 $count 个用户自定义节点');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.app.error('用户自定义节点加载失败', e, stackTrace);
+    }
+
+    // 初始化标准流程
+    try {
+      final regenerated = await StandardFlowService.ensureStandardFlow();
+      if (regenerated) {
+        AppLogger.app.info('标准流程已初始化/更新');
+      }
+    } catch (e, stackTrace) {
+      AppLogger.app.error('标准流程初始化失败', e, stackTrace);
     }
 
     runApp(const SvnMergeToolApp());
@@ -164,7 +195,7 @@ class _AppInitializerState extends State<AppInitializer> {
           );
         }
 
-        return const MainScreen();
+        return const MainScreenV3();
       },
     );
   }

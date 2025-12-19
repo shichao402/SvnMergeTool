@@ -65,6 +65,14 @@ class MergeJob {
   
   /// 暂停原因（冲突、提交失败等）
   final String pauseReason;
+  
+  /// 提交信息模板（支持变量：{revision}, {sourceUrl}, {targetUrl}）
+  final String? commitMessageTemplate;
+  
+  /// Pipeline 状态的 JSON 快照（用于恢复流程图显示）
+  /// 仅在任务暂停时保存
+  @JsonKey(name: 'pipelineStateJson')
+  final Map<String, dynamic>? pipelineStateJson;
 
   const MergeJob({
     required this.jobId,
@@ -76,6 +84,8 @@ class MergeJob {
     this.error = '',
     this.completedIndex = 0,
     this.pauseReason = '',
+    this.commitMessageTemplate,
+    this.pipelineStateJson,
   });
 
   /// 从 JSON 创建
@@ -96,6 +106,9 @@ class MergeJob {
     String? error,
     int? completedIndex,
     String? pauseReason,
+    String? commitMessageTemplate,
+    Map<String, dynamic>? pipelineStateJson,
+    bool clearPipelineState = false,
   }) {
     return MergeJob(
       jobId: jobId ?? this.jobId,
@@ -107,6 +120,8 @@ class MergeJob {
       error: error ?? this.error,
       completedIndex: completedIndex ?? this.completedIndex,
       pauseReason: pauseReason ?? this.pauseReason,
+      commitMessageTemplate: commitMessageTemplate ?? this.commitMessageTemplate,
+      pipelineStateJson: clearPipelineState ? null : (pipelineStateJson ?? this.pipelineStateJson),
     );
   }
   

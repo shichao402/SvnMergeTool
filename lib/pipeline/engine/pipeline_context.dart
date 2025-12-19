@@ -47,11 +47,27 @@ class PipelineContext {
   /// - ${stages.<stage_id>.output.<key>} - JSON 输出的字段
   /// - ${stages.<stage_id>.exitCode} - 退出码
   /// - ${input.<stage_id>} - 用户输入
+  /// - ${input.<stage_id>:prefix?suffix} - 条件输出：如果有值则输出 "prefix+值+suffix"，否则为空
+  ///   例如：${input.crid_input: --crid=?} 如果 crid_input=123，则输出 " --crid=123"
   /// - ${env.<name>} - 环境变量
   /// - ${job.<param>} - 任务参数
   String resolve(String template) {
+    // 先处理条件表达式 ${input.xxx:prefix?suffix}
+    final conditionalPattern = RegExp(r'\$\{input\.([^:}]+):([^?]*)\?([^}]*)\}');
+    var result = template.replaceAllMapped(conditionalPattern, (match) {
+      final inputId = match.group(1)!;
+      final prefix = match.group(2)!;
+      final suffix = match.group(3)!;
+      final value = userInputs[inputId];
+      if (value != null && value.isNotEmpty) {
+        return '$prefix$value$suffix';
+      }
+      return '';
+    });
+
+    // 再处理普通表达式 ${xxx}
     final pattern = RegExp(r'\$\{([^}]+)\}');
-    return template.replaceAllMapped(pattern, (match) {
+    return result.replaceAllMapped(pattern, (match) {
       final expr = match.group(1)!;
       final value = _resolveExpression(expr);
       return value?.toString() ?? '';

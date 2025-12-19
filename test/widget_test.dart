@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:SvnMergeTool/providers/app_state.dart';
-import 'package:SvnMergeTool/providers/merge_state.dart';
+import 'package:SvnMergeTool/providers/pipeline_merge_state.dart';
 
 void main() {
   testWidgets('App launches successfully', (WidgetTester tester) async {
@@ -19,7 +19,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => AppState()),
-          ChangeNotifierProvider(create: (_) => MergeState()),
+          ChangeNotifierProvider(create: (_) => PipelineMergeState()),
         ],
         child: const MaterialApp(
           home: Scaffold(

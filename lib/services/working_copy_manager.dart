@@ -310,6 +310,11 @@ class WorkingCopyManager {
   /// 
   /// 这是一个复合操作，包含：update -> merge -> commit
   /// 整个过程会持有锁，确保原子性
+  /// 
+  /// [commitMessageTemplate] 提交信息模板，支持变量：
+  ///   - {revision} 或 $revision - 版本号
+  ///   - {sourceUrl} 或 $sourceUrl - 源 URL
+  ///   - {targetUrl} 或 $targetUrl - 目标 URL
   Future<void> autoMergeAndCommit({
     required String sourceUrl,
     required int revision,
@@ -318,6 +323,7 @@ class WorkingCopyManager {
     bool dryRun = false,
     String? username,
     String? password,
+    String? commitMessageTemplate,
   }) async {
     return _withLock(
       targetWc,
@@ -330,6 +336,7 @@ class WorkingCopyManager {
         dryRun: dryRun,
         username: username,
         password: password,
+        commitMessageTemplate: commitMessageTemplate,
       ),
       description: 'Auto merge r$revision',
     );

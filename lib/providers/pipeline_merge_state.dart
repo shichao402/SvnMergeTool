@@ -1,31 +1,29 @@
-/// 基于 Pipeline 的合并任务状态管理
+/// 基于 Graph Pipeline 的合并任务状态管理
 ///
-/// 这是 MergeState 的重构版本，使用 Pipeline 引擎执行合并任务
-/// 
-/// 设计原则：
-/// - 保持与原 MergeState 相同的公开接口，确保向后兼容
-/// - 内部使用 PipelineFacade 执行任务
-/// - 支持 Pipeline 的可视化和阶段控制
+/// 使用 GraphPipelineFacade 执行合并任务
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 
 import '../models/merge_job.dart';
-import '../pipeline/pipeline.dart';
+import '../pipeline/graph/graph.dart';
 import '../services/logger_service.dart';
 import '../services/mergeinfo_cache_service.dart';
 import '../services/storage_service.dart';
 import '../services/working_copy_manager.dart';
 
-/// 基于 Pipeline 的合并状态管理
+/// 基于 Graph Pipeline 的合并状态管理
 class PipelineMergeState extends ChangeNotifier {
   final StorageService _storageService = StorageService();
   final WorkingCopyManager _wcManager = WorkingCopyManager();
   final MergeInfoCacheService _mergeInfoService = MergeInfoCacheService();
 
   /// Pipeline 门面
-  final PipelineFacade _pipeline = PipelineFacade();
+  final GraphPipelineFacade _pipeline = GraphPipelineFacade();
 
   /// 任务列表
   List<MergeJob> _jobs = [];
@@ -39,11 +37,14 @@ class PipelineMergeState extends ChangeNotifier {
   /// 日志
   String _log = '';
 
-  /// 当前使用的 Pipeline 配置
-  PipelineConfig _currentPipelineConfig = PipelineConfig.simple();
-
   /// 事件订阅
-  StreamSubscription<PipelineEvent>? _eventSubscription;
+  StreamSubscription<GraphPipelineEvent>? _eventSubscription;
+  
+  /// 用户选择的流程路径（null 表示使用内置标准流程）
+  String? _selectedFlowPath;
+  
+  /// 用户流程控制器缓存
+  NodeFlowController<StageData>? _customFlowController;
 
   // ==================== Getters ====================
 
@@ -54,7 +55,7 @@ class PipelineMergeState extends ChangeNotifier {
   /// 是否正在处理
   bool get isProcessing => _pipeline.isRunning;
 
-  /// 是否有暂停的任务
+  /// 是否有暂停的任务（包括等待输入）
   bool get hasPausedJob =>
       _jobs.any((job) => job.status == JobStatus.paused) || _pipeline.isPaused;
 
@@ -75,23 +76,28 @@ class PipelineMergeState extends ChangeNotifier {
     return _jobs.where((job) => job.status.isActive).toList();
   }
 
-  /// 当前 Pipeline 状态
-  PipelineState? get pipelineState => _pipeline.state;
+  // ==================== Graph Pipeline 接口 ====================
 
-  /// 当前 Pipeline 配置
-  PipelineConfig get currentPipelineConfig => _currentPipelineConfig;
+  /// 流程控制器
+  NodeFlowController<StageData>? get controller => _pipeline.controller;
+
+  /// 当前执行状态
+  GraphExecutorStatus get status => _pipeline.status;
+
+  /// 当前执行的节点
+  Node<StageData>? get currentNode => _pipeline.currentNode;
+
+  /// 是否等待用户输入
+  bool get isWaitingInput => _pipeline.isWaitingInput;
+
+  /// 等待输入的节点
+  Node<StageData>? get waitingInputNode => _pipeline.waitingInputNode;
 
   /// 是否可以继续
   bool get canResume => _pipeline.canResume;
 
   /// 是否可以取消
   bool get canCancel => _pipeline.canCancel;
-
-  /// 是否可以回滚
-  bool get canRollback => _pipeline.canRollback;
-
-  /// 当前用户输入请求
-  UserInputRequest? get currentInputRequest => _pipeline.currentInputRequest;
 
   // ==================== 初始化 ====================
 
@@ -117,6 +123,9 @@ class PipelineMergeState extends ChangeNotifier {
 
     // 清空日志
     _log = '';
+    
+    // 加载用户选择的流程
+    await _loadSelectedFlow();
 
     // 检查暂停的任务
     if (hasPausedJob) {
@@ -128,23 +137,53 @@ class PipelineMergeState extends ChangeNotifier {
     }
 
     notifyListeners();
+    
+    // 如果有 pending 任务且没有暂停任务，自动开始执行
+    if (!hasPausedJob) {
+      final pendingJobs = _jobs.where((j) => j.status == JobStatus.pending).toList();
+      if (pendingJobs.isNotEmpty) {
+        _appendLog('[INFO] 检测到 ${pendingJobs.length} 个待执行任务，自动开始执行...');
+        await _startNextJob();
+      }
+    }
   }
-
-  // ==================== Pipeline 配置 ====================
-
-  /// 设置 Pipeline 配置
-  void setPipelineConfig(PipelineConfig config) {
-    _currentPipelineConfig = config;
+  
+  /// 加载用户选择的流程
+  Future<void> _loadSelectedFlow() async {
+    _selectedFlowPath = await _storageService.getSelectedFlowPath();
+    _customFlowController = null;
+    
+    if (_selectedFlowPath != null) {
+      try {
+        final file = File(_selectedFlowPath!);
+        if (file.existsSync()) {
+          final content = await file.readAsString();
+          final json = jsonDecode(content) as Map<String, dynamic>;
+          _customFlowController = MergeFlowBuilder.fromJson(json);
+          _appendLog('[INFO] 已加载自定义流程: ${_selectedFlowPath!.split('/').last}');
+        } else {
+          _appendLog('[WARN] 自定义流程文件不存在，使用标准流程');
+          _selectedFlowPath = null;
+        }
+      } catch (e) {
+        _appendLog('[ERROR] 加载自定义流程失败: $e，使用标准流程');
+        _selectedFlowPath = null;
+      }
+    }
+  }
+  
+  /// 重新加载流程（设置变更后调用）
+  Future<void> reloadFlow() async {
+    await _loadSelectedFlow();
     notifyListeners();
   }
-
-  /// 获取可用的 Pipeline 配置列表
-  List<PipelineConfig> getAvailablePipelineConfigs() {
-    // TODO: 从配置文件加载
-    return [
-      PipelineConfig.simple(),
-      // 可以添加更多预设配置
-    ];
+  
+  /// 获取当前使用的流程名称
+  String get currentFlowName {
+    if (_selectedFlowPath == null) {
+      return '标准合并流程';
+    }
+    return _selectedFlowPath!.split('/').last.replaceAll('.flow.json', '');
   }
 
   // ==================== 任务管理 ====================
@@ -155,6 +194,7 @@ class PipelineMergeState extends ChangeNotifier {
     required String targetWc,
     required List<int> revisions,
     required int maxRetries,
+    String? commitMessageTemplate,
   }) async {
     if (isLocked) {
       _appendLog('[WARN] 有暂停的任务需要处理，无法添加新任务');
@@ -167,6 +207,7 @@ class PipelineMergeState extends ChangeNotifier {
       targetWc: targetWc,
       maxRetries: maxRetries,
       revisions: revisions,
+      commitMessageTemplate: commitMessageTemplate,
     );
 
     _jobs.add(job);
@@ -265,46 +306,82 @@ class PipelineMergeState extends ChangeNotifier {
       return;
     }
 
-    if (_pipeline.isPaused) {
-      // Pipeline 级别的暂停，使用 Pipeline 恢复
-      _appendLog('[INFO] 继续执行 Pipeline...');
-      await _pipeline.resume(userInput: userInput);
-    } else {
-      // 任务级别的暂停，重新启动 Pipeline
-      final job = pausedJob!;
-      final jobIndex = _jobs.indexWhere((j) => j.jobId == job.jobId);
-      if (jobIndex == -1) return;
-
-      _appendLog('[INFO] 继续执行暂停的任务 #${job.jobId}');
-
-      _jobs[jobIndex] = job.copyWith(
-        status: JobStatus.running,
-        pauseReason: '',
-      );
-      await _storageService.saveQueue(_jobs);
-      notifyListeners();
-
-      await _executeJobWithPipeline(jobIndex, resumeFromIndex: job.completedIndex);
-    }
-  }
-
-  /// 取消暂停的任务
-  Future<void> cancelPausedJob() async {
-    if (!hasPausedJob) {
-      _appendLog('[WARN] 没有暂停的任务');
+    // 如果是等待输入状态，提交输入
+    if (isWaitingInput && userInput != null) {
+      _appendLog('[INFO] 提交用户输入...');
+      await _pipeline.submitUserInput(userInput);
       return;
     }
 
-    // 取消 Pipeline
-    if (_pipeline.canCancel) {
-      await _pipeline.cancel();
-    }
-
+    // 任务级别的暂停，重新启动 Pipeline
     final job = pausedJob!;
     final jobIndex = _jobs.indexWhere((j) => j.jobId == job.jobId);
     if (jobIndex == -1) return;
 
-    _appendLog('[INFO] 取消暂停的任务 #${job.jobId}');
+    _appendLog('[INFO] 继续执行暂停的任务 #${job.jobId}');
+
+    _jobs[jobIndex] = job.copyWith(
+      status: JobStatus.running,
+      pauseReason: '',
+    );
+    await _storageService.saveQueue(_jobs);
+    notifyListeners();
+
+    await _executeJobWithPipeline(jobIndex, resumeFromIndex: job.completedIndex);
+  }
+
+  /// 提交用户输入
+  Future<void> submitUserInput(String value) async {
+    if (isWaitingInput) {
+      await _pipeline.submitUserInput(value);
+      return;
+    }
+    
+    // 从持久化恢复的"等待输入"状态
+    if (hasPausedJob && pausedJob!.pauseReason.startsWith('等待输入')) {
+      _appendLog('[INFO] 提交用户输入: $value，恢复任务执行...');
+      _pendingUserInput = value;
+      await resumePausedJob();
+      return;
+    }
+    
+    _appendLog('[WARN] 当前不在等待输入状态');
+  }
+  
+  /// 待提交的用户输入（用于持久化恢复场景）
+  String? _pendingUserInput;
+
+  /// 取消暂停的任务
+  Future<void> cancelPausedJob() async {
+    // 如果正在运行，先取消 Pipeline
+    if (_pipeline.isRunning || _pipeline.canCancel) {
+      _appendLog('[INFO] 正在取消执行...');
+      _pipeline.cancel();
+    }
+
+    if (!hasPausedJob && _currentJobIndex < 0) {
+      _appendLog('[WARN] 没有可取消的任务');
+      return;
+    }
+
+    // 获取要取消的任务
+    MergeJob? job;
+    int jobIndex = -1;
+    
+    if (hasPausedJob) {
+      job = pausedJob!;
+      jobIndex = _jobs.indexWhere((j) => j.jobId == job!.jobId);
+    } else if (_currentJobIndex >= 0 && _currentJobIndex < _jobs.length) {
+      job = _jobs[_currentJobIndex];
+      jobIndex = _currentJobIndex;
+    }
+    
+    if (job == null || jobIndex == -1) {
+      _appendLog('[WARN] 找不到要取消的任务');
+      return;
+    }
+
+    _appendLog('[INFO] 取消任务 #${job.jobId}');
 
     // 回滚工作副本
     try {
@@ -322,7 +399,7 @@ class PipelineMergeState extends ChangeNotifier {
 
     _jobs[jobIndex] = job.copyWith(
       status: JobStatus.failed,
-      error: '用户取消: ${job.pauseReason}',
+      error: '用户取消: ${job.pauseReason.isNotEmpty ? job.pauseReason : "手动停止"}',
     );
 
     await _storageService.saveQueue(_jobs);
@@ -330,15 +407,6 @@ class PipelineMergeState extends ChangeNotifier {
     notifyListeners();
 
     await _startNextJob();
-  }
-
-  /// 跳过当前阶段/revision
-  Future<void> skipCurrentStage() async {
-    if (_pipeline.isPaused) {
-      await _pipeline.skipCurrentStage();
-    } else {
-      await skipCurrentRevision();
-    }
   }
 
   /// 跳过当前 revision
@@ -391,23 +459,6 @@ class PipelineMergeState extends ChangeNotifier {
     }
   }
 
-  /// 回滚到 Pipeline 开始
-  Future<void> rollback() async {
-    if (_pipeline.canRollback) {
-      await _pipeline.rollback();
-    }
-  }
-
-  /// 提交用户输入
-  void submitUserInput(String value) {
-    _pipeline.submitUserInput(value);
-  }
-
-  /// 取消用户输入
-  void cancelUserInput() {
-    _pipeline.cancelUserInput();
-  }
-
   // ==================== 内部方法 ====================
 
   /// 启动下一个任务
@@ -446,7 +497,7 @@ class PipelineMergeState extends ChangeNotifier {
     _appendLog('  源 URL: ${job.sourceUrl}');
     _appendLog('  目标工作副本: ${job.targetWc}');
     _appendLog('  待合并 revision: ${job.revisions.map((r) => 'r$r').join(', ')}');
-    _appendLog('  使用 Pipeline: ${_currentPipelineConfig.name}');
+    _appendLog('  使用流程: $currentFlowName');
 
     // 逐个 revision 执行 Pipeline
     for (int i = resumeFromIndex; i < job.revisions.length; i++) {
@@ -454,9 +505,9 @@ class PipelineMergeState extends ChangeNotifier {
       _appendLog('[INFO] 开始处理 revision r$rev (${i + 1}/${job.revisions.length})...');
 
       try {
-        // 启动 Pipeline
-        await _pipeline.start(
-          config: _currentPipelineConfig,
+        // 启动 Pipeline，使用用户选择的流程
+        final success = await _pipeline.start(
+          controller: _customFlowController,
           jobParams: {
             'targetWc': job.targetWc,
             'sourceUrl': job.sourceUrl,
@@ -466,40 +517,47 @@ class PipelineMergeState extends ChangeNotifier {
           },
         );
 
-        // 等待 Pipeline 完成
-        await _waitForPipelineCompletion();
+        final currentStatus = _pipeline.status;
 
-        final state = _pipeline.state;
-        if (state == null) continue;
-
-        if (state.status == PipelineStatus.completed) {
+        if (success) {
           // 更新进度
           _jobs[jobIndex] = job.copyWith(completedIndex: i + 1);
           job = _jobs[jobIndex];
           await _storageService.saveQueue(_jobs);
           _appendLog('[INFO] r$rev 处理完成');
-        } else if (state.status == PipelineStatus.paused) {
-          // Pipeline 暂停，任务也暂停
+        } else if (currentStatus == GraphExecutorStatus.paused) {
+          // 等待用户输入，任务暂停
+          final waitingNode = _pipeline.waitingInputNode;
           _jobs[jobIndex] = job.copyWith(
             status: JobStatus.paused,
             completedIndex: i,
-            pauseReason: state.pauseReason ?? 'Pipeline 暂停',
+            pauseReason: '等待输入: ${waitingNode?.data?.name ?? 'unknown'}',
           );
           await _storageService.saveQueue(_jobs);
-          _appendLog('[WARN] 任务暂停: ${state.pauseReason}');
+          _appendLog('[INFO] 等待用户输入');
           notifyListeners();
           return;
-        } else if (state.status == PipelineStatus.failed ||
-            state.status == PipelineStatus.cancelled) {
-          // Pipeline 失败或取消
+        } else if (currentStatus == GraphExecutorStatus.failed) {
+          // Pipeline 失败
           _jobs[jobIndex] = job.copyWith(
             status: JobStatus.paused,
             completedIndex: i,
-            pauseReason: state.error ?? 'Pipeline 失败',
-            error: state.error,
+            pauseReason: '执行失败',
+            error: '执行失败',
           );
           await _storageService.saveQueue(_jobs);
-          _appendLog('[ERROR] Pipeline 失败: ${state.error}');
+          _appendLog('[ERROR] Pipeline 失败');
+          notifyListeners();
+          return;
+        } else if (currentStatus == GraphExecutorStatus.cancelled) {
+          // Pipeline 取消
+          _jobs[jobIndex] = job.copyWith(
+            status: JobStatus.paused,
+            completedIndex: i,
+            pauseReason: '已取消',
+          );
+          await _storageService.saveQueue(_jobs);
+          _appendLog('[INFO] Pipeline 已取消');
           notifyListeners();
           return;
         }
@@ -544,35 +602,9 @@ class PipelineMergeState extends ChangeNotifier {
     await _startNextJob();
   }
 
-  /// 等待 Pipeline 完成
-  Future<void> _waitForPipelineCompletion() async {
-    final completer = Completer<void>();
-
-    void listener() {
-      final state = _pipeline.state;
-      if (state != null && state.status.isTerminal) {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }
-    }
-
-    _pipeline.addListener(listener);
-
-    // 检查是否已经完成
-    final currentState = _pipeline.state;
-    if (currentState != null && currentState.status.isTerminal) {
-      _pipeline.removeListener(listener);
-      return;
-    }
-
-    await completer.future;
-    _pipeline.removeListener(listener);
-  }
-
   /// Pipeline 事件处理
-  void _onPipelineEvent(PipelineEvent event) {
-    if (event.type == PipelineEventType.log && event.message != null) {
+  void _onPipelineEvent(GraphPipelineEvent event) {
+    if (event.type == GraphPipelineEventType.log && event.message != null) {
       _appendLog(event.message!);
     }
   }

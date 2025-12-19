@@ -50,6 +50,9 @@ class SvnService {
   /// 日志回调
   Function(String)? onLog;
 
+  /// SVN 可执行文件路径（初始化时自动检测）
+  String _svnPath = 'svn';
+
   /// 不支持 --xml 参数的 SVN 命令黑名单
   /// 
   /// 这些命令不支持 XML 输出，即使 useXml=true 也不会添加 --xml 参数
@@ -87,6 +90,40 @@ class SvnService {
       throwOnError: false,
       commandVerbose: false,
     );
+    
+    // 自动检测 SVN 路径
+    await _detectSvnPath();
+  }
+
+  /// 检测 SVN 可执行文件路径
+  /// 
+  /// macOS GUI 应用的 PATH 环境变量与终端不同，
+  /// 需要在常见路径中查找 svn 可执行文件
+  Future<void> _detectSvnPath() async {
+    // 常见的 SVN 安装路径
+    final possiblePaths = [
+      'svn', // 系统 PATH（可能在终端有效但 GUI 无效）
+      '/usr/local/bin/svn', // Homebrew (Intel Mac)
+      '/opt/homebrew/bin/svn', // Homebrew (Apple Silicon)
+      '/usr/bin/svn', // 系统自带
+      '/opt/local/bin/svn', // MacPorts
+    ];
+
+    for (final path in possiblePaths) {
+      try {
+        final result = await Process.run(path, ['--version']);
+        if (result.exitCode == 0) {
+          _svnPath = path;
+          _log('检测到 SVN 路径: $_svnPath');
+          return;
+        }
+      } catch (e) {
+        // 继续尝试下一个路径
+      }
+    }
+
+    // 如果都没找到，保持默认值 'svn'，让后续命令报错
+    _log('⚠ 未找到 SVN 可执行文件，将使用默认路径: svn');
   }
 
   /// 记录日志
@@ -104,7 +141,7 @@ class SvnService {
     String? username,
     String? password,
   }) {
-    final args = <String>['svn'];
+    final args = <String>[_svnPath];
     
     // 添加认证参数（仅在需要临时传递凭证时）
     // 注意：正常情况下不传递，让 SVN 使用自己的凭证缓存
@@ -666,6 +703,12 @@ class SvnService {
   ///    - merge
   ///    - 检查冲突
   ///    - commit（如果 out-of-date 则重试）
+  /// 
+  /// [commitMessageTemplate] 提交信息模板，支持变量：
+  ///   - {revision} 或 $revision - 版本号
+  ///   - {sourceUrl} 或 $sourceUrl - 源 URL
+  ///   - {targetUrl} 或 $targetUrl - 目标 URL
+  /// 如果不提供，使用默认模板
   Future<void> autoMergeAndCommit({
     required String sourceUrl,
     required int revision,
@@ -674,6 +717,7 @@ class SvnService {
     bool dryRun = false,
     String? username,
     String? password,
+    String? commitMessageTemplate,
   }) async {
     final targetUrl = await ensureWorkingCopy(
       targetWc,
@@ -722,7 +766,13 @@ class SvnService {
       
       // 4) 提交
       try {
-        final commitMsg = 'Auto-merge r$revision from $sourceUrl to $targetUrl';
+        // 生成 commit message
+        final commitMsg = _buildCommitMessage(
+          template: commitMessageTemplate,
+          revision: revision,
+          sourceUrl: sourceUrl,
+          targetUrl: targetUrl,
+        );
         await commit(targetWc, commitMsg, username: username, password: password);
         _log('提交成功');
         return;
@@ -745,6 +795,33 @@ class SvnService {
         }
       }
     }
+  }
+
+  /// 构建 commit message
+  /// 
+  /// 支持模板变量：
+  /// - {revision} 或 $revision
+  /// - {sourceUrl} 或 $sourceUrl  
+  /// - {targetUrl} 或 $targetUrl
+  String _buildCommitMessage({
+    String? template,
+    required int revision,
+    required String sourceUrl,
+    required String targetUrl,
+  }) {
+    if (template == null || template.isEmpty) {
+      // 默认模板
+      return '[Merge] r$revision from $sourceUrl';
+    }
+    
+    // 替换变量
+    return template
+        .replaceAll(r'{revision}', revision.toString())
+        .replaceAll(r'$revision', revision.toString())
+        .replaceAll(r'{sourceUrl}', sourceUrl)
+        .replaceAll(r'$sourceUrl', sourceUrl)
+        .replaceAll(r'{targetUrl}', targetUrl)
+        .replaceAll(r'$targetUrl', targetUrl);
   }
 
   /// 批量执行多个 revision 的合并

@@ -184,6 +184,26 @@ class StorageService {
     await _prefs!.setInt('default_max_retries', value);
   }
 
+  /// 获取当前选择的流程路径
+  /// 
+  /// 返回 null 表示使用内置标准流程
+  Future<String?> getSelectedFlowPath() async {
+    await _ensureInit();
+    return _prefs!.getString('selected_flow_path');
+  }
+
+  /// 保存当前选择的流程路径
+  /// 
+  /// 传入 null 表示使用内置标准流程
+  Future<void> saveSelectedFlowPath(String? path) async {
+    await _ensureInit();
+    if (path == null) {
+      await _prefs!.remove('selected_flow_path');
+    } else {
+      await _prefs!.setString('selected_flow_path', path);
+    }
+  }
+
   /// 获取单页记录数
   Future<int> getPageSize() async {
     await _ensureInit();

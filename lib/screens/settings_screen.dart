@@ -3,13 +3,18 @@
 /// 整合所有设置项，包括：
 /// - 预加载设置
 /// - 最大重试次数
+/// - 流程编辑器
 /// - 其他设置
+library;
+
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/app_config.dart';
 import '../services/storage_service.dart';
 import '../services/logger_service.dart';
+import 'flow_editor_screen.dart';
 
 /// 设置界面返回的结果
 class SettingsResult {
@@ -66,6 +71,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 合并设置
   late int _maxRetries;
+  
+  // 流程设置
+  String? _selectedFlowPath;
+  List<_FlowInfo> _availableFlows = [];
 
   // 控制器
   final _maxDaysController = TextEditingController();
@@ -78,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadSettings();
+    _loadAvailableFlows();
   }
 
   void _loadSettings() {
@@ -98,6 +108,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 加载合并设置
     _maxRetries = widget.currentMaxRetries;
     _maxRetriesController.text = _maxRetries.toString();
+    
+    // 加载流程设置
+    StorageService().getSelectedFlowPath().then((path) {
+      if (mounted) {
+        setState(() => _selectedFlowPath = path);
+      }
+    });
+  }
+  
+  Future<void> _loadAvailableFlows() async {
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
+    final dir = Directory('$home/.svn_flow/flows');
+    
+    final flows = <_FlowInfo>[];
+    
+    if (dir.existsSync()) {
+      for (final file in dir.listSync()) {
+        if (file is File && file.path.endsWith('.flow.json')) {
+          final name = file.path.split('/').last.replaceAll('.flow.json', '');
+          final modified = file.statSync().modified;
+          flows.add(_FlowInfo(
+            name: name,
+            path: file.path,
+            modified: modified,
+          ));
+        }
+      }
+    }
+    
+    // 按修改时间排序（最新的在前）
+    flows.sort((a, b) => b.modified.compareTo(a.modified));
+    
+    if (mounted) {
+      setState(() => _availableFlows = flows);
+    }
   }
 
   @override
@@ -144,6 +189,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'stop_date': newPreloadSettings.stopDate,
       });
       await storageService.saveDefaultMaxRetries(maxRetries);
+      await storageService.saveSelectedFlowPath(_selectedFlowPath);
       AppLogger.ui.info('设置已保存');
     } catch (e, stackTrace) {
       AppLogger.ui.error('保存设置失败', e, stackTrace);
@@ -217,6 +263,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Pipeline 选择
+                    _buildPipelineSelector(),
+                    const Divider(),
                     // 最大重试次数
                     ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -449,4 +498,231 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  Widget _buildPipelineSelector() {
+    final currentFlowName = _selectedFlowPath != null
+        ? _selectedFlowPath!.split('/').last.replaceAll('.flow.json', '')
+        : '标准合并流程';
+    final isBuiltin = _selectedFlowPath == null;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 当前流程
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('当前流程'),
+          subtitle: Text(currentFlowName),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isBuiltin)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '内置',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '自定义',
+                    style: TextStyle(fontSize: 12, color: Colors.purple.shade700),
+                  ),
+                ),
+              const SizedBox(width: 8),
+              const Icon(Icons.check_circle, color: Colors.green),
+            ],
+          ),
+        ),
+        const Divider(),
+        
+        // 流程选择
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            '选择流程',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700,
+              fontSize: 13,
+            ),
+          ),
+        ),
+        
+        // 内置流程选项
+        _buildFlowOption(
+          name: '标准合并流程',
+          description: '内置的 SVN 合并流程',
+          isSelected: isBuiltin,
+          isBuiltin: true,
+          onTap: () => setState(() => _selectedFlowPath = null),
+        ),
+        
+        // 用户自定义流程
+        if (_availableFlows.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          ...(_availableFlows.map((flow) => _buildFlowOption(
+            name: flow.name,
+            description: '修改于 ${_formatDate(flow.modified)}',
+            isSelected: _selectedFlowPath == flow.path,
+            isBuiltin: false,
+            onTap: () => setState(() => _selectedFlowPath = flow.path),
+            onEdit: () => FlowEditorScreen.show(context, flowFilePath: flow.path),
+          ))),
+        ],
+        
+        if (_availableFlows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              '暂无自定义流程',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade500,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        
+        const Divider(),
+        
+        // 流程编辑器入口
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.purple.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.account_tree, color: Colors.purple.shade700),
+          ),
+          title: const Text('流程编辑器'),
+          subtitle: const Text('创建和编辑自定义流程'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () async {
+            await FlowEditorScreen.show(context);
+            // 返回后刷新流程列表
+            _loadAvailableFlows();
+          },
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildFlowOption({
+    required String name,
+    required String description,
+    required bool isSelected,
+    required bool isBuiltin,
+    required VoidCallback onTap,
+    VoidCallback? onEdit,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue.shade50 : null,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? Colors.blue : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: isSelected ? Colors.blue : Colors.grey,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      if (!isBuiltin) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.shade100,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '自定义',
+                            style: TextStyle(fontSize: 10, color: Colors.purple.shade700),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Text(
+                    description,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            if (onEdit != null)
+              IconButton(
+                icon: const Icon(Icons.edit, size: 18),
+                onPressed: onEdit,
+                tooltip: '编辑',
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+    
+    if (diff.inDays == 0) {
+      return '今天 ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    } else if (diff.inDays == 1) {
+      return '昨天';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays} 天前';
+    } else {
+      return '${date.month}/${date.day}';
+    }
+  }
+}
+
+/// 流程信息
+class _FlowInfo {
+  final String name;
+  final String path;
+  final DateTime modified;
+  
+  _FlowInfo({
+    required this.name,
+    required this.path,
+    required this.modified,
+  });
 }
