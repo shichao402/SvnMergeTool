@@ -13,6 +13,7 @@ import '../../models/merge_job.dart';
 /// - 执行状态显示
 /// - 用户输入区域
 /// - 流程控制指令（暂停、恢复、取消、跳过）
+/// - 节点快照详情查看
 class PipelinePanel extends StatefulWidget {
   /// 执行状态
   final ExecutorStatus status;
@@ -44,6 +45,15 @@ class PipelinePanel extends StatefulWidget {
   /// 提交输入回调
   final void Function(String value)? onSubmitInput;
 
+  /// 选中的节点快照
+  final NodeSnapshot? selectedSnapshot;
+
+  /// 选中的节点 ID（即使没有快照也需要）
+  final String? selectedNodeId;
+
+  /// 清除选中回调
+  final VoidCallback? onClearSelection;
+
   const PipelinePanel({
     super.key,
     required this.status,
@@ -56,6 +66,9 @@ class PipelinePanel extends StatefulWidget {
     required this.onSkip,
     required this.onCancel,
     this.onSubmitInput,
+    this.selectedSnapshot,
+    this.selectedNodeId,
+    this.onClearSelection,
   });
 
   @override
@@ -115,7 +128,7 @@ class _PipelinePanelState extends State<PipelinePanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 标题栏
+          // 标题栏（根据是否选中节点切换）
           _buildHeader(),
           const Divider(height: 1),
           
@@ -123,25 +136,9 @@ class _PipelinePanelState extends State<PipelinePanel> {
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 执行状态
-                  _buildStatusSection(),
-                  
-                  // 进度信息
-                  if (widget.pausedJob != null) ...[
-                    const SizedBox(height: 16),
-                    _buildProgressSection(),
-                  ],
-                  
-                  // 用户输入区域
-                  if (widget.isWaitingInput && widget.inputConfig != null) ...[
-                    const SizedBox(height: 20),
-                    _buildInputSection(),
-                  ],
-                ],
-              ),
+              child: widget.selectedNodeId != null
+                  ? _buildNodeDetailView()  // 选中节点时显示节点详情
+                  : _buildExecutionStatusView(),  // 未选中时显示执行状态
             ),
           ),
           
@@ -152,8 +149,351 @@ class _PipelinePanelState extends State<PipelinePanel> {
     );
   }
 
+  /// 执行状态视图（未选中节点时显示）
+  Widget _buildExecutionStatusView() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 执行状态
+        _buildStatusSection(),
+        
+        // 进度信息
+        if (widget.pausedJob != null) ...[
+          const SizedBox(height: 16),
+          _buildProgressSection(),
+        ],
+        
+        // 用户输入区域
+        if (widget.isWaitingInput && widget.inputConfig != null) ...[
+          const SizedBox(height: 20),
+          _buildInputSection(),
+        ],
+        
+        // 提示
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.touch_app, size: 20, color: Colors.grey.shade500),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '点击流程图中的节点可查看执行详情',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 节点详情视图（选中节点时显示）
+  Widget _buildNodeDetailView() {
+    final snapshot = widget.selectedSnapshot;
+    
+    // 没有快照时显示等待执行提示
+    if (snapshot == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.schedule, size: 48, color: Colors.grey.shade400),
+                const SizedBox(height: 12),
+                Text(
+                  '节点尚未执行',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '执行到此节点后将显示详细信息',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 节点基本信息
+        _buildSnapshotInfoCard(snapshot),
+        
+        // 输入数据
+        if (snapshot.inputData.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildExpandableSection(
+            '输入数据',
+            snapshot.inputData,
+            Icons.input,
+          ),
+        ],
+        
+        // 配置参数
+        if (snapshot.config.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildExpandableSection(
+            '配置参数',
+            snapshot.config,
+            Icons.settings,
+          ),
+        ],
+        
+        // 输出结果
+        if (snapshot.output != null) ...[
+          const SizedBox(height: 8),
+          _buildExpandableSection(
+            '输出结果 (${snapshot.output!.port})',
+            snapshot.output!.data,
+            Icons.output,
+          ),
+        ],
+        
+        // 错误信息
+        if (snapshot.error != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
+                    Text(
+                      '错误信息',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: Colors.red.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SelectableText(
+                  snapshot.error!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        
+        // 无快照数据提示
+        if (snapshot.inputData.isEmpty && 
+            snapshot.config.isEmpty && 
+            snapshot.output == null && 
+            snapshot.error == null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              snapshot.status == NodeExecutionStatus.pending
+                  ? '该节点尚未执行'
+                  : '该节点没有详细数据',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 快照信息卡片
+  Widget _buildSnapshotInfoCard(NodeSnapshot snapshot) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 状态
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getSnapshotStatusColor(snapshot.status).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _getSnapshotStatusIcon(snapshot.status),
+                      size: 14,
+                      color: _getSnapshotStatusColor(snapshot.status),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _getSnapshotStatusText(snapshot.status),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: _getSnapshotStatusColor(snapshot.status),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (snapshot.durationMs != null)
+                Text(
+                  '${snapshot.durationMs}ms',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+            ],
+          ),
+          
+          // 时间信息
+          const SizedBox(height: 8),
+          Text(
+            '开始: ${_formatTime(snapshot.startTime)}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          if (snapshot.endTime != null)
+            Text(
+              '结束: ${_formatTime(snapshot.endTime!)}',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade500,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+  }
+
+  IconData _getSnapshotStatusIcon(NodeExecutionStatus status) {
+    switch (status) {
+      case NodeExecutionStatus.pending:
+        return Icons.schedule;
+      case NodeExecutionStatus.running:
+        return Icons.play_circle;
+      case NodeExecutionStatus.completed:
+        return Icons.check_circle;
+      case NodeExecutionStatus.failed:
+        return Icons.error;
+      case NodeExecutionStatus.skipped:
+        return Icons.skip_next;
+    }
+  }
+
   /// 标题栏
   Widget _buildHeader() {
+    final hasSelection = widget.selectedNodeId != null;
+    
+    if (hasSelection) {
+      // 选中节点时的标题栏
+      final snapshot = widget.selectedSnapshot;
+      final displayName = snapshot?.nodeName ?? snapshot?.nodeTypeId ?? widget.selectedNodeId!;
+      final typeId = snapshot?.nodeTypeId ?? widget.selectedNodeId!;
+      
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: Colors.purple.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.info, color: Colors.purple.shade700, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple.shade900,
+                    ),
+                  ),
+                  if (snapshot != null)
+                    Text(
+                      typeId,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.purple.shade600,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // 返回按钮
+            TextButton.icon(
+              onPressed: widget.onClearSelection,
+              icon: const Icon(Icons.arrow_back, size: 16),
+              label: const Text('返回'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.purple.shade700,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 默认标题栏（显示执行状态）
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: _getStatusColor().withValues(alpha: 0.1),
@@ -186,6 +526,95 @@ class _PipelinePanelState extends State<PipelinePanel> {
         ],
       ),
     );
+  }
+
+  Widget _buildExpandableSection(
+    String title,
+    Map<String, dynamic> data,
+    IconData icon,
+  ) {
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+      childrenPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      leading: Icon(icon, size: 16, color: Colors.purple.shade600),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: Colors.purple.shade800,
+        ),
+      ),
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
+      ),
+      collapsedShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4),
+      ),
+      backgroundColor: Colors.white,
+      collapsedBackgroundColor: Colors.white,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: SelectableText(
+            _formatJson(data),
+            style: const TextStyle(
+              fontSize: 11,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatJson(Map<String, dynamic> data) {
+    if (data.isEmpty) return '{}';
+    final buffer = StringBuffer();
+    data.forEach((key, value) {
+      final valueStr = value is Map || value is List
+          ? value.toString()
+          : '"$value"';
+      buffer.writeln('  "$key": $valueStr,');
+    });
+    return '{\n${buffer.toString().trimRight().replaceAll(RegExp(r',\s*$'), '')}\n}';
+  }
+
+  String _getSnapshotStatusText(NodeExecutionStatus status) {
+    switch (status) {
+      case NodeExecutionStatus.pending:
+        return '待执行';
+      case NodeExecutionStatus.running:
+        return '执行中';
+      case NodeExecutionStatus.completed:
+        return '已完成';
+      case NodeExecutionStatus.failed:
+        return '失败';
+      case NodeExecutionStatus.skipped:
+        return '已跳过';
+    }
+  }
+
+  Color _getSnapshotStatusColor(NodeExecutionStatus status) {
+    switch (status) {
+      case NodeExecutionStatus.pending:
+        return Colors.grey;
+      case NodeExecutionStatus.running:
+        return Colors.blue;
+      case NodeExecutionStatus.completed:
+        return Colors.green;
+      case NodeExecutionStatus.failed:
+        return Colors.red;
+      case NodeExecutionStatus.skipped:
+        return Colors.orange;
+    }
   }
 
   /// 状态区域

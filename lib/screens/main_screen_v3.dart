@@ -61,6 +61,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
   int? _cachedBranchPoint;
   PreloadProgress _preloadProgress = const PreloadProgress();
   PreloadSettings _preloadSettings = const PreloadSettings();
+  String? _selectedNodeId; // 流程图中选中的节点 ID
 
   // ============ Services ============
   final _logFileCacheService = LogFileCacheService();
@@ -707,6 +708,11 @@ class _MainScreenV3State extends State<MainScreenV3> {
                         flowGraph: mergeState.flowGraph!,
                         currentNodeId: mergeState.currentNodeId,
                         status: mergeState.status,
+                        snapshots: mergeState.snapshots,
+                        selectedNodeId: _selectedNodeId,
+                        onNodeSelected: (nodeId) {
+                          setState(() => _selectedNodeId = nodeId);
+                        },
                       )
                     : const Center(child: Text('加载流程图...')),
               ),
@@ -723,6 +729,13 @@ class _MainScreenV3State extends State<MainScreenV3> {
                   onSkip: () => mergeState.skipCurrentRevision(),
                   onCancel: () => mergeState.cancelPausedJob(),
                   onSubmitInput: (value) => mergeState.submitUserInput(value),
+                  selectedSnapshot: _selectedNodeId != null
+                      ? mergeState.snapshots.get(_selectedNodeId!)
+                      : null,
+                  selectedNodeId: _selectedNodeId,
+                  onClearSelection: () {
+                    setState(() => _selectedNodeId = null);
+                  },
                 ),
               ),
             ],

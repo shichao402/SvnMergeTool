@@ -1,6 +1,8 @@
 import '../../registry/node_type_registry.dart';
 import 'commit_executor.dart';
+import 'debug_executor.dart';
 import 'merge_executor.dart';
+import 'pause_executor.dart';
 import 'prepare_executor.dart';
 import 'review_executor.dart';
 import 'update_executor.dart';
@@ -17,4 +19,8 @@ void registerBuiltinNodeTypes() {
 
   // 交互节点
   registry.register(ReviewExecutor.definition);
+
+  // 流程控制节点
+  registry.register(PauseExecutor.definition);
+  registry.register(DebugExecutor.definition);
 }

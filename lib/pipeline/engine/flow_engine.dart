@@ -45,11 +45,20 @@ class ExecutionEvent {
   /// 节点类型 ID
   final String? nodeTypeId;
 
+  /// 节点名称
+  final String? nodeName;
+
   /// 输出端口
   final String? port;
 
   /// 事件数据
   final Map<String, dynamic>? data;
+
+  /// 输入数据（节点开始时的输入）
+  final Map<String, dynamic>? inputData;
+
+  /// 节点配置
+  final Map<String, dynamic>? config;
 
   /// 错误消息
   final String? error;
@@ -61,8 +70,11 @@ class ExecutionEvent {
     required this.type,
     this.nodeId,
     this.nodeTypeId,
+    this.nodeName,
     this.port,
     this.data,
+    this.inputData,
+    this.config,
     this.error,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
@@ -182,21 +194,25 @@ class FlowEngine {
         type: ExecutionEventType.nodeSkipped,
         nodeId: nodeData.id,
         nodeTypeId: nodeData.typeId,
+        nodeName: nodeData.typeId,
         error: '未知节点类型: ${nodeData.typeId}',
       ));
       return;
     }
 
+    // 获取有效配置（填充默认值）
+    final effectiveConfig = typeDef.getEffectiveConfig(nodeData.config);
+
     _emitEvent(ExecutionEvent(
       type: ExecutionEventType.nodeStarted,
       nodeId: nodeData.id,
       nodeTypeId: nodeData.typeId,
+      nodeName: typeDef.name,
+      inputData: Map<String, dynamic>.from(inputData),
+      config: Map<String, dynamic>.from(effectiveConfig),
     ));
 
     try {
-      // 获取有效配置（填充默认值）
-      final effectiveConfig = typeDef.getEffectiveConfig(nodeData.config);
-
       // 执行节点
       final output = await typeDef.executor(
         input: inputData,
@@ -217,8 +233,11 @@ class FlowEngine {
             : ExecutionEventType.nodeFailed,
         nodeId: nodeData.id,
         nodeTypeId: nodeData.typeId,
+        nodeName: typeDef.name,
         port: output.port,
         data: output.data,
+        inputData: Map<String, dynamic>.from(inputData),
+        config: Map<String, dynamic>.from(effectiveConfig),
         error: output.isSuccess ? null : output.message,
       ));
 
@@ -235,6 +254,9 @@ class FlowEngine {
         type: ExecutionEventType.nodeFailed,
         nodeId: nodeData.id,
         nodeTypeId: nodeData.typeId,
+        nodeName: typeDef.name,
+        inputData: Map<String, dynamic>.from(inputData),
+        config: Map<String, dynamic>.from(effectiveConfig),
         error: e.toString(),
       ));
 

@@ -66,6 +66,9 @@ class PipelineMergeState extends ChangeNotifier {
   /// 当前等待的用户输入配置
   UserInputConfig? _waitingInputConfig;
 
+  /// 节点执行快照
+  final ExecutionSnapshots _snapshots = ExecutionSnapshots();
+
   // ==================== Getters ====================
 
   List<MergeJob> get jobs => _jobs;
@@ -113,6 +116,9 @@ class PipelineMergeState extends ChangeNotifier {
 
   /// 当前加载的流程图数据
   FlowGraphData? get flowGraph => _flowGraph;
+
+  /// 节点执行快照
+  ExecutionSnapshots get snapshots => _snapshots;
 
   /// 是否可以继续
   bool get canResume => _status == ExecutorStatus.paused;
@@ -500,6 +506,9 @@ class PipelineMergeState extends ChangeNotifier {
 
   /// 使用 FlowEngine 执行任务
   Future<void> _executeJobWithEngine(int jobIndex, {required int resumeFromIndex}) async {
+    // 每次执行前重新加载流程图，确保使用最新版本
+    await _loadSelectedFlow();
+    
     if (_flowGraph == null) {
       _appendLog('[ERROR] 流程图未加载');
       return;
@@ -681,19 +690,97 @@ class PipelineMergeState extends ChangeNotifier {
 
     switch (event.type) {
       case ExecutionEventType.nodeStarted:
-        _appendLog('[INFO] 开始执行节点: ${event.nodeTypeId}');
+        _appendLog('[INFO] 开始执行节点: ${event.nodeName ?? event.nodeTypeId}');
+        // 创建初始快照
+        if (event.nodeId != null) {
+          _snapshots.set(
+            event.nodeId!,
+            NodeSnapshot(
+              nodeId: event.nodeId!,
+              nodeTypeId: event.nodeTypeId ?? 'unknown',
+              nodeName: event.nodeName,
+              status: NodeExecutionStatus.running,
+              inputData: event.inputData ?? {},
+              config: event.config ?? {},
+              startTime: event.timestamp,
+            ),
+          );
+        }
         break;
       case ExecutionEventType.nodeCompleted:
-        _appendLog('[INFO] 节点完成: ${event.nodeTypeId} -> ${event.port}');
+        _appendLog('[INFO] 节点完成: ${event.nodeName ?? event.nodeTypeId} -> ${event.port}');
+        // 更新快照为完成状态
+        if (event.nodeId != null) {
+          final existing = _snapshots.get(event.nodeId!);
+          if (existing != null) {
+            _snapshots.set(
+              event.nodeId!,
+              existing.copyWith(
+                status: NodeExecutionStatus.completed,
+                output: NodeOutput(
+                  port: event.port ?? 'success',
+                  data: event.data ?? {},
+                  isSuccess: true,
+                ),
+                endTime: event.timestamp,
+              ),
+            );
+          }
+        }
         break;
       case ExecutionEventType.nodeFailed:
-        _appendLog('[ERROR] 节点失败: ${event.nodeTypeId} - ${event.error}');
+        _appendLog('[ERROR] 节点失败: ${event.nodeName ?? event.nodeTypeId} - ${event.error}');
+        // 更新快照为失败状态
+        if (event.nodeId != null) {
+          final existing = _snapshots.get(event.nodeId!);
+          if (existing != null) {
+            _snapshots.set(
+              event.nodeId!,
+              existing.copyWith(
+                status: NodeExecutionStatus.failed,
+                output: event.port != null
+                    ? NodeOutput(
+                        port: event.port!,
+                        data: event.data ?? {},
+                        isSuccess: false,
+                        message: event.error,
+                      )
+                    : null,
+                error: event.error,
+                endTime: event.timestamp,
+              ),
+            );
+          }
+        }
+        break;
+      case ExecutionEventType.nodeSkipped:
+        _appendLog('[WARN] 节点跳过: ${event.nodeName ?? event.nodeTypeId} - ${event.error}');
+        if (event.nodeId != null) {
+          _snapshots.set(
+            event.nodeId!,
+            NodeSnapshot(
+              nodeId: event.nodeId!,
+              nodeTypeId: event.nodeTypeId ?? 'unknown',
+              nodeName: event.nodeName,
+              status: NodeExecutionStatus.skipped,
+              inputData: {},
+              config: {},
+              error: event.error,
+              startTime: event.timestamp,
+              endTime: event.timestamp,
+            ),
+          );
+        }
         break;
       case ExecutionEventType.inputRequired:
         _status = ExecutorStatus.paused;
         break;
       case ExecutionEventType.flowCancelled:
         _status = ExecutorStatus.cancelled;
+        break;
+      case ExecutionEventType.flowStarted:
+        // 清空之前的快照
+        _snapshots.clear();
         break;
       default:
         break;
