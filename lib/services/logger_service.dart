@@ -84,14 +84,25 @@ class LoggerService {
         await logDir.create(recursive: true);
       }
 
-      // 生成日志文件名（带时间戳）
-      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.')[0];
-      final logFileName = 'app_$timestamp.log';
-      _logFilePath = path.join(logDir.path, logFileName);
+      // 使用固定名称 latest.log
+      final latestLogPath = path.join(logDir.path, 'latest.log');
+      final latestLogFile = File(latestLogPath);
 
-      // 打开日志文件（追加模式）
-      final logFile = File(_logFilePath!);
-      _logFileSink = logFile.openWrite(mode: FileMode.append);
+      // 如果 latest.log 已存在，根据第一行时间戳重命名
+      if (await latestLogFile.exists()) {
+        await _archiveLatestLog(latestLogFile);
+      }
+
+      // 创建新的 latest.log
+      _logFilePath = latestLogPath;
+      _logFileSink = latestLogFile.openWrite(mode: FileMode.write);
+
+      // 写入日志创建时间作为第一行
+      final now = DateTime.now();
+      final timestamp = now.toIso8601String().replaceAll(':', '-').split('.')[0];
+      _logFileSink!.writeln('# Log created at: $timestamp');
+      _logFileSink!.writeln('# This file will be renamed to app_$timestamp.log on next startup');
+      _logFileSink!.writeln('');
 
       _initialized = true;
 
@@ -102,6 +113,52 @@ class LoggerService {
       // 注意：这里使用 debugPrint 是必要的，因为日志服务本身需要输出错误
       // 这是基础设施层的特殊情况
       debugPrint('日志文件初始化失败: $e\n$stackTrace');
+    }
+  }
+
+  /// 归档 latest.log 文件
+  Future<void> _archiveLatestLog(File latestLogFile) async {
+    try {
+      // 读取第一行获取时间戳
+      final lines = await latestLogFile.readAsLines();
+      String? timestamp;
+
+      for (final line in lines) {
+        if (line.startsWith('# Log created at: ')) {
+          timestamp = line.substring('# Log created at: '.length).trim();
+          break;
+        }
+      }
+
+      // 如果没有找到时间戳，使用文件修改时间
+      if (timestamp == null || timestamp.isEmpty) {
+        final stat = await latestLogFile.stat();
+        timestamp = stat.modified.toIso8601String().replaceAll(':', '-').split('.')[0];
+      }
+
+      // 重命名为 app_timestamp.log
+      final logDir = latestLogFile.parent;
+      final newPath = path.join(logDir.path, 'app_$timestamp.log');
+      final newFile = File(newPath);
+
+      // 如果目标文件已存在，添加序号
+      if (await newFile.exists()) {
+        var counter = 1;
+        String uniquePath;
+        do {
+          uniquePath = path.join(logDir.path, 'app_${timestamp}_$counter.log');
+          counter++;
+        } while (await File(uniquePath).exists());
+        await latestLogFile.rename(uniquePath);
+      } else {
+        await latestLogFile.rename(newPath);
+      }
+    } catch (e) {
+      // 归档失败，直接删除旧文件
+      debugPrint('归档 latest.log 失败，删除旧文件: $e');
+      try {
+        await latestLogFile.delete();
+      } catch (_) {}
     }
   }
 
@@ -303,6 +360,15 @@ class LoggerService {
   TaggedLogger tagged(String tag) {
     return TaggedLogger._(this, tag);
   }
+
+  /// 获取日志目录路径
+  Future<String> getLogDirectory() async {
+    final appDir = await getApplicationSupportDirectory();
+    return path.join(appDir.path, 'logs');
+  }
+
+  /// 获取当前日志文件路径
+  String? get currentLogFilePath => _logFilePath;
 }
 
 /// 带标签的日志记录器

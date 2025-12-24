@@ -3,12 +3,12 @@
 /// 重构版本：组件化设计
 /// - 主屏幕只负责组装各组件和管理状态
 /// - UI 组件独立，易于替换和测试
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../providers/pipeline_merge_state.dart';
-import '../pipeline/pipeline.dart';
 import '../models/app_config.dart' show PreloadSettings;
 import '../services/svn_service.dart';
 import '../services/logger_service.dart';
@@ -22,12 +22,12 @@ import 'settings_screen.dart';
 
 // 组件导入
 import 'components/config_bar.dart';
+import 'components/flow_execution_view.dart';
 import 'components/log_list_panel.dart';
 import 'components/pending_panel.dart';
 import 'components/pipeline_panel.dart';
 import 'components/status_bar.dart';
 import 'components/dialogs/config_dialog.dart';
-import 'components/dialogs/input_dialog.dart';
 import 'components/dialogs/log_dialog.dart';
 
 /// 操作阶段枚举
@@ -61,9 +61,6 @@ class _MainScreenV3State extends State<MainScreenV3> {
   int? _cachedBranchPoint;
   PreloadProgress _preloadProgress = const PreloadProgress();
   PreloadSettings _preloadSettings = const PreloadSettings();
-
-  // ============ 对话框状态管理 ============
-  String? _lastHandledInputId;
 
   // ============ Services ============
   final _logFileCacheService = LogFileCacheService();
@@ -574,34 +571,6 @@ class _MainScreenV3State extends State<MainScreenV3> {
     );
   }
 
-  void _showInputDialog(PipelineMergeState mergeState) {
-    final waitingNode = mergeState.waitingInputNode;
-    if (waitingNode == null || waitingNode.data == null) return;
-
-    final data = waitingNode.data!;
-    final reviewInput = data.reviewInput;
-
-    // 防止重复弹出
-    final inputId = waitingNode.id;
-    if (_lastHandledInputId == inputId) return;
-    _lastHandledInputId = inputId;
-
-    // 构建 ReviewInputConfig
-    final inputConfig = ReviewInputConfig(
-      label: reviewInput?.label ?? data.name,
-      hint: reviewInput?.prompt,
-      validationRegex: reviewInput?.validationPattern,
-      required: reviewInput?.required ?? true,
-    );
-
-    InputDialog.show(
-      context: context,
-      inputConfig: inputConfig,
-      onSubmit: (value) => mergeState.submitUserInput(value),
-      onSkip: () => mergeState.skipCurrentRevision(),
-    );
-  }
-
   void _showLogDialog(PipelineMergeState mergeState) {
     LogDialog.show(
       context: context,
@@ -625,16 +594,6 @@ class _MainScreenV3State extends State<MainScreenV3> {
     return Consumer2<AppState, PipelineMergeState>(
       builder: (context, appState, mergeState, _) {
         final phase = _getCurrentPhase(mergeState);
-
-        // 检查是否需要显示输入对话框
-        if (mergeState.isWaitingInput) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showInputDialog(mergeState);
-          });
-        } else {
-          // 重置输入对话框状态
-          _lastHandledInputId = null;
-        }
 
         return Scaffold(
           body: Column(
@@ -736,18 +695,37 @@ class _MainScreenV3State extends State<MainScreenV3> {
   Widget _buildExecutePhaseView(PipelineMergeState mergeState) {
     return Column(
       children: [
-        // 主内容区：Pipeline 状态
+        // 主内容区：流程图 + 控制面板
         Expanded(
-          child: PipelinePanel(
-            status: mergeState.status,
-            currentNode: mergeState.currentNode,
-            controller: mergeState.controller,
-            pausedJob: mergeState.pausedJob,
-            isWaitingInput: mergeState.isWaitingInput,
-            onResume: () => mergeState.resumePausedJob(),
-            onSkip: () => mergeState.skipCurrentRevision(),
-            onCancel: () => mergeState.cancelPausedJob(),
-            onSubmitInput: (value) => mergeState.submitUserInput(value),
+          child: Row(
+            children: [
+              // 左侧：流程图只读视图
+              Expanded(
+                flex: 2,
+                child: mergeState.flowGraph != null
+                    ? FlowExecutionView(
+                        flowGraph: mergeState.flowGraph!,
+                        currentNodeId: mergeState.currentNodeId,
+                        status: mergeState.status,
+                      )
+                    : const Center(child: Text('加载流程图...')),
+              ),
+              // 右侧：控制面板
+              SizedBox(
+                width: 320,
+                child: PipelinePanel(
+                  status: mergeState.status,
+                  currentNodeId: mergeState.currentNodeId,
+                  pausedJob: mergeState.pausedJob,
+                  isWaitingInput: mergeState.isWaitingInput,
+                  inputConfig: mergeState.waitingInputConfig,
+                  onResume: () => mergeState.resumePausedJob(),
+                  onSkip: () => mergeState.skipCurrentRevision(),
+                  onCancel: () => mergeState.cancelPausedJob(),
+                  onSubmitInput: (value) => mergeState.submitUserInput(value),
+                ),
+              ),
+            ],
           ),
         ),
         // 底部状态栏

@@ -1,13 +1,14 @@
 /// 底部状态栏
 ///
 /// 显示当前状态和日志查看入口
+library;
 
 import 'package:flutter/material.dart';
-import '../../pipeline/pipeline.dart';
+import '../../pipeline/engine/engine.dart';
 
 /// 底部状态栏
 class StatusBar extends StatelessWidget {
-  final GraphExecutorStatus status;
+  final ExecutorStatus status;
   final bool hasLog;
   final VoidCallback onViewLog;
 
@@ -30,7 +31,7 @@ class StatusBar extends StatelessWidget {
         children: [
           // 状态信息
           Icon(
-            status == GraphExecutorStatus.running ? Icons.sync : Icons.info_outline,
+            status == ExecutorStatus.running ? Icons.sync : Icons.info_outline,
             size: 16,
             color: Colors.grey.shade600,
           ),
@@ -67,17 +68,17 @@ class StatusBar extends StatelessWidget {
 
   String get _statusText {
     switch (status) {
-      case GraphExecutorStatus.idle:
+      case ExecutorStatus.idle:
         return '就绪';
-      case GraphExecutorStatus.running:
+      case ExecutorStatus.running:
         return '运行中';
-      case GraphExecutorStatus.paused:
+      case ExecutorStatus.paused:
         return '已暂停';
-      case GraphExecutorStatus.completed:
+      case ExecutorStatus.completed:
         return '已完成';
-      case GraphExecutorStatus.failed:
+      case ExecutorStatus.failed:
         return '失败';
-      case GraphExecutorStatus.cancelled:
+      case ExecutorStatus.cancelled:
         return '已取消';
     }
   }

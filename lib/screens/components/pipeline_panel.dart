@@ -1,31 +1,57 @@
 /// Pipeline 执行面板
 ///
-/// 显示 Pipeline 执行状态、流程图和暂停任务信息
+/// 显示 Pipeline 执行状态、用户输入和控制指令
+library;
 
 import 'package:flutter/material.dart';
-import 'package:vyuh_node_flow/vyuh_node_flow.dart';
-import '../../pipeline/pipeline.dart';
+import '../../pipeline/engine/engine.dart';
 import '../../models/merge_job.dart';
 
 /// Pipeline 执行面板
-class PipelinePanel extends StatelessWidget {
-  final GraphExecutorStatus status;
-  final Node<StageData>? currentNode;
-  final NodeFlowController<StageData>? controller;
+/// 
+/// 整合了：
+/// - 执行状态显示
+/// - 用户输入区域
+/// - 流程控制指令（暂停、恢复、取消、跳过）
+class PipelinePanel extends StatefulWidget {
+  /// 执行状态
+  final ExecutorStatus status;
+  
+  /// 当前节点 ID
+  final String? currentNodeId;
+  
+  /// 当前节点名称
+  final String? currentNodeName;
+  
+  /// 暂停的任务
   final MergeJob? pausedJob;
+  
+  /// 是否等待用户输入
   final bool isWaitingInput;
+  
+  /// 用户输入配置（当 isWaitingInput 为 true 时有效）
+  final UserInputConfig? inputConfig;
+  
+  /// 恢复回调
   final VoidCallback onResume;
+  
+  /// 跳过回调
   final VoidCallback onSkip;
+  
+  /// 取消回调
   final VoidCallback onCancel;
+  
+  /// 提交输入回调
   final void Function(String value)? onSubmitInput;
 
   const PipelinePanel({
     super.key,
     required this.status,
-    this.currentNode,
-    this.controller,
+    this.currentNodeId,
+    this.currentNodeName,
     required this.pausedJob,
     required this.isWaitingInput,
+    this.inputConfig,
     required this.onResume,
     required this.onSkip,
     required this.onCancel,
@@ -33,33 +59,172 @@ class PipelinePanel extends StatelessWidget {
   });
 
   @override
+  State<PipelinePanel> createState() => _PipelinePanelState();
+}
+
+class _PipelinePanelState extends State<PipelinePanel> {
+  final _inputController = TextEditingController();
+  String? _validationError;
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(PipelinePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当输入配置变化时，清空输入框
+    if (widget.inputConfig != oldWidget.inputConfig) {
+      _inputController.clear();
+      _validationError = null;
+    }
+  }
+
+  void _submitInput() {
+    final value = _inputController.text.trim();
+    
+    // 验证必填
+    if (widget.inputConfig?.required == true && value.isEmpty) {
+      setState(() => _validationError = '此字段为必填项');
+      return;
+    }
+    
+    // 验证正则
+    final regex = widget.inputConfig?.validationRegex;
+    if (regex != null && value.isNotEmpty) {
+      if (!RegExp(regex).hasMatch(value)) {
+        setState(() => _validationError = '输入格式不正确');
+        return;
+      }
+    }
+    
+    _validationError = null;
+    widget.onSubmitInput?.call(value);
+    _inputController.clear();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(left: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 标题栏
+          _buildHeader(),
+          const Divider(height: 1),
+          
+          // 主内容区
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 执行状态
+                  _buildStatusSection(),
+                  
+                  // 进度信息
+                  if (widget.pausedJob != null) ...[
+                    const SizedBox(height: 16),
+                    _buildProgressSection(),
+                  ],
+                  
+                  // 用户输入区域
+                  if (widget.isWaitingInput && widget.inputConfig != null) ...[
+                    const SizedBox(height: 20),
+                    _buildInputSection(),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          
+          // 底部控制区
+          _buildControlSection(),
+        ],
+      ),
+    );
+  }
+
+  /// 标题栏
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: _getStatusColor().withValues(alpha: 0.1),
+      child: Row(
+        children: [
+          _StatusIcon(status: widget.status),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getStatusTitle(),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (widget.currentNodeName != null)
+                  Text(
+                    widget.currentNodeName!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 状态区域
+  Widget _buildStatusSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 状态标题和控制按钮
-          _buildHeader(),
-          const SizedBox(height: 16),
-          // 流程图
-          if (controller != null)
-            Expanded(
-              child: GraphFlowChart(
-                controller: controller!,
-                currentNodeId: currentNode?.id,
+          Row(
+            children: [
+              Icon(
+                _getStatusIcon(),
+                size: 20,
+                color: _getStatusColor(),
               ),
-            ),
-          // 暂停信息和操作
-          if (pausedJob != null) ...[
-            const SizedBox(height: 16),
-            _PausedJobInfo(
-              job: pausedJob!,
-              isWaitingInput: isWaitingInput,
-              onResume: onResume,
-              onSkip: onSkip,
-              onCancel: onCancel,
-              onSubmitInput: onSubmitInput,
+              const SizedBox(width: 8),
+              Text(
+                _getStatusMessage(),
+                style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  color: _getStatusColor(),
+                ),
+              ),
+            ],
+          ),
+          if (widget.currentNodeId != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '节点: ${widget.currentNodeId}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade500,
+              ),
             ),
           ],
         ],
@@ -67,39 +232,308 @@ class PipelinePanel extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader() {
-    return Row(
-      children: [
-        _StatusIcon(status: status),
-        const SizedBox(width: 12),
-        Text(
-          currentNode?.data?.name ?? '任务执行中',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const Spacer(),
-        if (pausedJob != null)
-          Text(
-            '${pausedJob!.completedIndex}/${pausedJob!.revisions.length}',
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+  /// 进度区域
+  Widget _buildProgressSection() {
+    final job = widget.pausedJob!;
+    final progress = job.completedIndex / job.revisions.length;
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '执行进度',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+              Text(
+                '${job.completedIndex}/${job.revisions.length}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+            ],
           ),
-        // 运行时显示取消按钮
-        if (status == GraphExecutorStatus.running && pausedJob == null) ...[
-          const SizedBox(width: 16),
-          OutlinedButton.icon(
-            onPressed: onCancel,
-            icon: const Icon(Icons.stop, size: 18),
-            label: const Text('停止'),
-            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: Colors.grey.shade200,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '当前: r${job.currentRevision}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          if (job.pauseReason.isNotEmpty && !job.pauseReason.startsWith('等待输入')) ...[
+            const SizedBox(height: 4),
+            Text(
+              '原因: ${job.pauseReason}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.orange.shade700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 用户输入区域
+  Widget _buildInputSection() {
+    final config = widget.inputConfig!;
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.edit_note, color: Colors.blue.shade700),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  config.label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade900,
+                  ),
+                ),
+              ),
+              if (config.required)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '必填',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.red.shade700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (config.hint != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              config.hint!,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blue.shade700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _inputController,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: '请输入...',
+              errorText: _validationError,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+            onSubmitted: (_) => _submitInput(),
+            onChanged: (_) {
+              if (_validationError != null) {
+                setState(() => _validationError = null);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _submitInput,
+              icon: const Icon(Icons.send, size: 18),
+              label: const Text('提交'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+            ),
           ),
         ],
-      ],
+      ),
     );
+  }
+
+  /// 控制区域
+  Widget _buildControlSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 主要操作
+          if (widget.status == ExecutorStatus.paused && !widget.isWaitingInput)
+            ElevatedButton.icon(
+              onPressed: widget.onResume,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('继续执行'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          
+          const SizedBox(height: 8),
+          
+          // 次要操作
+          Row(
+            children: [
+              // 跳过按钮
+              if (widget.pausedJob != null)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: widget.onSkip,
+                    icon: const Icon(Icons.skip_next, size: 18),
+                    label: Text('跳过 r${widget.pausedJob!.currentRevision}'),
+                  ),
+                ),
+              
+              if (widget.pausedJob != null)
+                const SizedBox(width: 8),
+              
+              // 取消按钮
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.onCancel,
+                  icon: const Icon(Icons.stop, size: 18),
+                  label: const Text('终止流程'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          // 提示信息
+          if (widget.status == ExecutorStatus.running) ...[
+            const SizedBox(height: 8),
+            Text(
+              '终止指令将在当前节点执行完成后生效',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade500,
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _getStatusTitle() {
+    switch (widget.status) {
+      case ExecutorStatus.idle:
+        return '等待执行';
+      case ExecutorStatus.running:
+        return '执行中';
+      case ExecutorStatus.paused:
+        return widget.isWaitingInput ? '等待输入' : '已暂停';
+      case ExecutorStatus.completed:
+        return '执行完成';
+      case ExecutorStatus.failed:
+        return '执行失败';
+      case ExecutorStatus.cancelled:
+        return '已取消';
+    }
+  }
+
+  IconData _getStatusIcon() {
+    switch (widget.status) {
+      case ExecutorStatus.idle:
+        return Icons.schedule;
+      case ExecutorStatus.running:
+        return Icons.play_circle;
+      case ExecutorStatus.paused:
+        return widget.isWaitingInput ? Icons.edit : Icons.pause_circle;
+      case ExecutorStatus.completed:
+        return Icons.check_circle;
+      case ExecutorStatus.failed:
+        return Icons.error;
+      case ExecutorStatus.cancelled:
+        return Icons.cancel;
+    }
+  }
+
+  Color _getStatusColor() {
+    switch (widget.status) {
+      case ExecutorStatus.idle:
+        return Colors.grey;
+      case ExecutorStatus.running:
+        return Colors.blue;
+      case ExecutorStatus.paused:
+        return widget.isWaitingInput ? Colors.blue : Colors.orange;
+      case ExecutorStatus.completed:
+        return Colors.green;
+      case ExecutorStatus.failed:
+        return Colors.red;
+      case ExecutorStatus.cancelled:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusMessage() {
+    switch (widget.status) {
+      case ExecutorStatus.idle:
+        return '等待开始';
+      case ExecutorStatus.running:
+        return '正在执行...';
+      case ExecutorStatus.paused:
+        return widget.isWaitingInput ? '需要用户输入' : '已暂停';
+      case ExecutorStatus.completed:
+        return '执行完成';
+      case ExecutorStatus.failed:
+        return '执行失败';
+      case ExecutorStatus.cancelled:
+        return '已取消';
+    }
   }
 }
 
 /// 状态图标
 class _StatusIcon extends StatelessWidget {
-  final GraphExecutorStatus status;
+  final ExecutorStatus status;
 
   const _StatusIcon({required this.status});
 
@@ -109,210 +543,32 @@ class _StatusIcon extends StatelessWidget {
     Color color;
 
     switch (status) {
-      case GraphExecutorStatus.running:
-        icon = Icons.play_circle;
-        color = Colors.blue;
-        break;
-      case GraphExecutorStatus.paused:
+      case ExecutorStatus.running:
+        return const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+          ),
+        );
+      case ExecutorStatus.paused:
         icon = Icons.pause_circle;
         color = Colors.orange;
-        break;
-      case GraphExecutorStatus.completed:
+      case ExecutorStatus.completed:
         icon = Icons.check_circle;
         color = Colors.green;
-        break;
-      case GraphExecutorStatus.failed:
+      case ExecutorStatus.failed:
         icon = Icons.error;
         color = Colors.red;
-        break;
-      case GraphExecutorStatus.cancelled:
+      case ExecutorStatus.cancelled:
         icon = Icons.cancel;
         color = Colors.grey;
-        break;
-      case GraphExecutorStatus.idle:
+      case ExecutorStatus.idle:
         icon = Icons.schedule;
         color = Colors.grey;
-        break;
     }
 
-    return Icon(icon, size: 28, color: color);
-  }
-}
-
-/// 暂停任务信息
-class _PausedJobInfo extends StatefulWidget {
-  final MergeJob job;
-  final bool isWaitingInput;
-  final VoidCallback onResume;
-  final VoidCallback onSkip;
-  final VoidCallback onCancel;
-  final void Function(String value)? onSubmitInput;
-
-  const _PausedJobInfo({
-    required this.job,
-    required this.isWaitingInput,
-    required this.onResume,
-    required this.onSkip,
-    required this.onCancel,
-    this.onSubmitInput,
-  });
-
-  @override
-  State<_PausedJobInfo> createState() => _PausedJobInfoState();
-}
-
-class _PausedJobInfoState extends State<_PausedJobInfo> {
-  final _inputController = TextEditingController();
-  
-  /// 判断是否是"等待输入"类型的暂停
-  bool get _isWaitingInputPause => widget.job.pauseReason.startsWith('等待输入');
-  
-  /// 提取输入字段名称
-  String get _inputFieldName {
-    final reason = widget.job.pauseReason;
-    if (reason.startsWith('等待输入: ')) {
-      return reason.substring('等待输入: '.length);
-    }
-    return '输入';
-  }
-
-  @override
-  void dispose() {
-    _inputController.dispose();
-    super.dispose();
-  }
-
-  void _submitInput() {
-    final value = _inputController.text.trim();
-    if (value.isEmpty) return;
-    widget.onSubmitInput?.call(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _isWaitingInputPause ? Colors.blue.shade50 : Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _isWaitingInputPause ? Colors.blue.shade200 : Colors.orange.shade200,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                _isWaitingInputPause ? Icons.edit_note : Icons.warning_amber,
-                color: _isWaitingInputPause ? Colors.blue.shade700 : Colors.orange.shade700,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _isWaitingInputPause 
-                      ? '需要输入: $_inputFieldName'
-                      : '任务暂停: ${widget.job.pauseReason}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: _isWaitingInputPause ? Colors.blue.shade900 : Colors.orange.shade900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '进度: ${widget.job.completedIndex}/${widget.job.revisions.length} | 当前: r${widget.job.currentRevision}',
-            style: TextStyle(color: Colors.grey.shade700),
-          ),
-          const SizedBox(height: 12),
-          // 根据暂停类型显示不同的操作区域
-          if (_isWaitingInputPause && widget.onSubmitInput != null)
-            _buildInputSection()
-          else
-            _buildActionButtons(),
-        ],
-      ),
-    );
-  }
-
-  /// 构建输入区域
-  Widget _buildInputSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _inputController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: '请输入 $_inputFieldName',
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                ),
-                onSubmitted: (_) => _submitInput(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton(
-              onPressed: _submitInput,
-              child: const Text('提交'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            TextButton.icon(
-              onPressed: widget.onSkip,
-              icon: const Icon(Icons.skip_next, size: 18),
-              label: Text('跳过 r${widget.job.currentRevision}'),
-            ),
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed: widget.onCancel,
-              icon: const Icon(Icons.cancel, size: 18),
-              label: const Text('取消任务'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  /// 构建操作按钮
-  Widget _buildActionButtons() {
-    return Wrap(
-      spacing: 8,
-      children: [
-        if (!widget.isWaitingInput)
-          ElevatedButton.icon(
-            onPressed: widget.onResume,
-            icon: const Icon(Icons.play_arrow, size: 18),
-            label: const Text('继续'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        OutlinedButton.icon(
-          onPressed: widget.onSkip,
-          icon: const Icon(Icons.skip_next, size: 18),
-          label: Text('跳过 r${widget.job.currentRevision}'),
-        ),
-        OutlinedButton.icon(
-          onPressed: widget.onCancel,
-          icon: const Icon(Icons.cancel, size: 18),
-          label: const Text('取消'),
-          style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-        ),
-      ],
-    );
+    return Icon(icon, size: 24, color: color);
   }
 }

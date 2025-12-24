@@ -4,16 +4,17 @@
 /// ```dart
 /// import 'package:svn_auto_merge/pipeline/pipeline.dart';
 /// 
-/// // 使用全局实例
-/// final pipeline = GlobalGraphPipeline.instance;
+/// // 注册内置节点
+/// registerBuiltinNodeTypes();
 /// 
-/// // 或创建新实例
-/// final pipeline = GraphPipelineFacade()..initialize();
+/// // 使用 FlowEngine 执行流程
+/// final engine = FlowEngine(controller, job);
+/// await engine.execute();
 /// ```
 library;
 
+export 'data/data.dart';
 export 'engine/engine.dart';
-export 'executors/executors.dart';
-export 'graph/graph.dart';
-export 'models/models.dart';
-export 'widgets/widgets.dart';
+export 'executors/builtin/builtin.dart';
+export 'executors/generic/generic.dart';
+export 'registry/registry.dart';

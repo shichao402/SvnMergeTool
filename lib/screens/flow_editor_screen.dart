@@ -11,9 +11,6 @@ import 'package:vyuh_node_flow/vyuh_node_flow.dart' hide NodeData;
 
 import '../pipeline/adapter/vyuh_adapter.dart';
 import '../pipeline/data/data.dart';
-import '../pipeline/graph/merge_flow_builder.dart';
-import '../pipeline/graph/stage_data.dart';
-import '../pipeline/models/stage_type.dart';
 import '../pipeline/registry/registry.dart';
 import '../services/logger_service.dart';
 import '../services/standard_flow_service.dart';
@@ -85,77 +82,37 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
       final isBuiltin = metadata?['isBuiltin'] as bool? ?? false;
       final isReadonly = metadata?['readonly'] as bool? ?? false;
       _isReadonly = isBuiltin || isReadonly || StandardFlowService.isStandardFlow(path);
-      
-      // 检查格式版本
-      final version = metadata?['version'] as String?;
-      final isNewFormat = version == '2.0' || 
-                          metadata?['standardFlowVersion'] != null ||
-                          json.containsKey('nodes') && (json['nodes'] as List?)?.isNotEmpty == true &&
-                          (json['nodes'] as List).first is Map && 
-                          ((json['nodes'] as List).first as Map).containsKey('data');
 
       _controller.clearGraph();
 
-      if (isNewFormat) {
-        // 新格式：NodeGraph<StageData>
-        await _loadNewFormat(json);
-      } else {
-        // 旧格式：FlowGraphData
-        await _loadOldFormat(json);
-      }
+      // 加载 FlowGraphData 格式
+      final graphData = FlowGraphData.fromJson(json);
+      await _loadFromGraphData(graphData);
 
       setState(() {
         _flowName = metadata?['name'] as String? ?? 
+            graphData.name ??
             path.split('/').last.replaceAll('.flow.json', '');
         _isDirty = false;
       });
 
-      AppLogger.ui.info('已加载流程: $path (${isNewFormat ? "新格式" : "旧格式"}, ${_isReadonly ? "只读" : "可编辑"})');
+      AppLogger.ui.info('已加载流程: $path (${_isReadonly ? "只读" : "可编辑"})');
     } catch (e) {
       _showError('加载流程失败: $e');
       AppLogger.ui.error('加载流程失败', e);
     }
   }
 
-  /// 加载新格式（NodeGraph<StageData>）
-  Future<void> _loadNewFormat(Map<String, dynamic> json) async {
-    final stageController = MergeFlowBuilder.fromJson(json);
-    final registry = NodeTypeRegistry.instance;
-
-    // 转换为编辑器节点（通过 adapter）
-    for (final node in stageController.nodes.values) {
-      final stageData = node.data;
-      final typeDef = registry.get(stageData.type.name);
-      
-      if (typeDef != null) {
-        final nodeData = NodeData(
-          id: node.id,
-          typeId: stageData.type.name,
-          x: node.position.value.dx,
-          y: node.position.value.dy,
-          config: _stageDataToConfig(stageData),
-        );
-        final editorNode = _adapter.createViewNode(typeDef, nodeData);
-        _controller.addNode(editorNode);
-      }
-    }
-
-    // 添加连接
-    for (final conn in stageController.connections) {
-      _controller.addConnection(conn);
-    }
-  }
-
-  /// 加载旧格式（FlowGraphData）
-  Future<void> _loadOldFormat(Map<String, dynamic> json) async {
-    final graphData = FlowGraphData.fromJson(json);
-
+  /// 从 FlowGraphData 加载
+  Future<void> _loadFromGraphData(FlowGraphData graphData) async {
     // 添加节点（通过 adapter）
     for (final nodeData in graphData.nodes) {
       final typeDef = NodeTypeRegistry.instance.get(nodeData.typeId);
       if (typeDef != null) {
         final node = _adapter.createViewNode(typeDef, nodeData);
         _controller.addNode(node);
+      } else {
+        AppLogger.ui.warn('未知节点类型: ${nodeData.typeId}，跳过');
       }
     }
 
@@ -172,17 +129,6 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
     }
   }
 
-  /// 将 StageData 转换为配置 Map
-  Map<String, dynamic> _stageDataToConfig(StageData data) {
-    return {
-      if (data.enabled != true) 'enabled': data.enabled,
-      if (data.scriptPath != null) 'scriptPath': data.scriptPath,
-      if (data.scriptArgs != null) 'scriptArgs': data.scriptArgs,
-      if (data.commitMessageTemplate != null) 'commitMessageTemplate': data.commitMessageTemplate,
-      if (data.reviewInput != null) 'reviewInput': data.reviewInput!.toJson(),
-    };
-  }
-
   /// 保存流程
   Future<void> _saveFlow() async {
     // 只读流程强制另存为
@@ -192,15 +138,14 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
     }
 
     try {
-      // 转换为完整的 NodeGraph<StageData> 格式（离线重建）
-      final stageController = _convertToStageController();
-      final json = MergeFlowBuilder.toJson(stageController);
+      // 导出为 FlowGraphData 格式
+      final graphData = _adapter.exportGraph(_controller);
+      final json = graphData.toJson();
       
       // 添加元数据
       json['metadata'] = {
         'name': _flowName,
         'savedAt': DateTime.now().toIso8601String(),
-        'version': '2.0',  // 标记为新格式
       };
 
       final file = File(_currentFilePath!);
@@ -237,6 +182,7 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
     setState(() {
       _currentFilePath = path;
       _flowName = name;
+      _isReadonly = false;  // 另存为后变为可编辑
     });
 
     await _saveFlow();
@@ -258,81 +204,8 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
       _currentFilePath = null;
       _flowName = '未命名流程';
       _isDirty = false;
+      _isReadonly = false;
     });
-  }
-
-  /// 导出图数据
-  FlowGraphData _exportGraph() {
-    return _adapter.exportGraph(_controller);
-  }
-
-  /// 转换为 StageData 控制器（用于保存完整格式）
-  NodeFlowController<StageData> _convertToStageController() {
-    final stageController = NodeFlowController<StageData>();
-    final graph = _controller.exportGraph();
-    final registry = NodeTypeRegistry.instance;
-
-    // 转换节点
-    for (final node in graph.nodes) {
-      final typeDef = registry.get(node.data.typeId);
-      if (typeDef == null) {
-        throw Exception('未知的节点类型: ${node.data.typeId}');
-      }
-
-      // 从 NodeTypeDefinition 构建 StageData
-      final stageData = _buildStageData(typeDef, node.data.config);
-
-      // 创建完整的节点
-      final stageNode = Node<StageData>(
-        id: node.id,
-        type: node.type,
-        position: node.position.value,
-        data: stageData,
-        size: node.size.value,
-        inputPorts: node.inputPorts.toList(),
-        outputPorts: node.outputPorts.toList(),
-      );
-
-      stageController.addNode(stageNode);
-    }
-
-    // 转换连接
-    for (final conn in graph.connections) {
-      stageController.addConnection(conn);
-    }
-
-    return stageController;
-  }
-
-  /// 从节点类型定义构建 StageData
-  StageData _buildStageData(NodeTypeDefinition typeDef, Map<String, dynamic> config) {
-    // 解析 StageType
-    final stageType = _parseStageType(typeDef.typeId);
-
-    return StageData(
-      type: stageType,
-      name: typeDef.name,
-      description: typeDef.description,
-      enabled: config['enabled'] as bool? ?? true,
-      scriptPath: config['scriptPath'] as String?,
-      scriptArgs: (config['scriptArgs'] as List<dynamic>?)?.cast<String>(),
-      commitMessageTemplate: config['commitMessageTemplate'] as String?,
-      reviewInput: config['reviewInput'] != null
-          ? ReviewInputData.fromJson(config['reviewInput'] as Map<String, dynamic>)
-          : null,
-    );
-  }
-
-  /// 解析 StageType
-  StageType _parseStageType(String typeId) {
-    // 尝试直接匹配
-    for (final type in StageType.values) {
-      if (type.name == typeId) {
-        return type;
-      }
-    }
-    // 默认为 script 类型
-    return StageType.script;
   }
 
   @override

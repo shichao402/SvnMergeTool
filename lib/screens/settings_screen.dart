@@ -227,6 +227,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _openLogDirectory() async {
+    try {
+      final logDir = await logger.getLogDirectory();
+      final dir = Directory(logDir);
+      
+      // 确保目录存在
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      // 使用系统命令打开目录
+      if (Platform.isMacOS) {
+        await Process.run('open', [logDir]);
+      } else if (Platform.isWindows) {
+        await Process.run('explorer', [logDir]);
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [logDir]);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('不支持的平台，日志目录: $logDir')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('打开日志目录失败: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -285,6 +318,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // 其他设置组
+            _buildSectionTitle('其他', Icons.settings),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.folder_open),
+                      title: const Text('打开日志目录'),
+                      subtitle: const Text('查看程序运行日志文件'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: _openLogDirectory,
                     ),
                   ],
                 ),
@@ -579,6 +634,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             isBuiltin: false,
             onTap: () => setState(() => _selectedFlowPath = flow.path),
             onEdit: () => FlowEditorScreen.show(context, flowFilePath: flow.path),
+            onDelete: () => _deleteFlow(flow),
           ))),
         ],
         
@@ -629,6 +685,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool isBuiltin,
     required VoidCallback onTap,
     VoidCallback? onEdit,
+    VoidCallback? onDelete,
   }) {
     return InkWell(
       onTap: onTap,
@@ -692,10 +749,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: onEdit,
                 tooltip: '编辑',
               ),
+            if (onDelete != null)
+              IconButton(
+                icon: Icon(Icons.delete, size: 18, color: Colors.red.shade400),
+                onPressed: onDelete,
+                tooltip: '删除',
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _deleteFlow(_FlowInfo flow) async {
+    // 确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除流程'),
+        content: Text('确定要删除流程 "${flow.name}" 吗？\n\n此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final file = File(flow.path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      // 如果删除的是当前选中的流程，切换回内置流程
+      if (_selectedFlowPath == flow.path) {
+        setState(() => _selectedFlowPath = null);
+      }
+
+      // 刷新流程列表
+      _loadAvailableFlows();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已删除流程 "${flow.name}"')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除失败: $e')),
+        );
+      }
+    }
   }
   
   String _formatDate(DateTime date) {

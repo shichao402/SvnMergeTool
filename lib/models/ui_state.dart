@@ -5,12 +5,11 @@
 /// 2. 状态与 UI 解耦：这是纯数据模型，不依赖任何 UI 组件
 /// 3. 不可变：状态变化通过创建新实例实现
 /// 4. 可预测：状态转换有明确的规则
+library;
 
 import 'package:flutter/foundation.dart';
-import 'package:vyuh_node_flow/vyuh_node_flow.dart';
-import '../pipeline/graph/graph.dart';
+import '../pipeline/engine/engine.dart';
 import '../providers/pipeline_merge_state.dart';
-import 'merge_job.dart';
 
 /// UI 阶段
 /// 
@@ -67,16 +66,14 @@ class UIInputRequest {
     this.required = true,
   });
   
-  /// 从等待输入的节点创建
-  factory UIInputRequest.fromWaitingNode(Node<StageData> node) {
-    final data = node.data!;
-    final reviewInput = data.reviewInput;
+  /// 从 UserInputConfig 创建
+  factory UIInputRequest.fromConfig(String nodeId, UserInputConfig config) {
     return UIInputRequest(
-      id: node.id,
-      title: reviewInput?.label ?? data.name,
-      hint: reviewInput?.prompt,
-      validationRegex: reviewInput?.validationPattern,
-      required: reviewInput?.required ?? true,
+      id: nodeId,
+      title: config.label,
+      hint: config.hint,
+      validationRegex: config.validationRegex,
+      required: config.required,
     );
   }
 }
@@ -100,7 +97,7 @@ class UIExecutionProgress {
   final int completedRevisions;
   
   /// 执行器状态
-  final GraphExecutorStatus? executorStatus;
+  final ExecutorStatus? executorStatus;
   
   const UIExecutionProgress({
     this.currentStageName,
@@ -347,33 +344,33 @@ class UIStateManager extends ChangeNotifier {
   
   /// 计算输入请求
   UIInputRequest? _computeInputRequest(PipelineMergeState mergeState) {
-    final waitingNode = mergeState.waitingInputNode;
-    if (waitingNode == null || waitingNode.data == null) return null;
-    return UIInputRequest.fromWaitingNode(waitingNode);
+    final inputConfig = mergeState.waitingInputConfig;
+    final nodeId = mergeState.currentNodeId;
+    if (inputConfig == null || nodeId == null) return null;
+    return UIInputRequest.fromConfig(nodeId, inputConfig);
   }
   
   /// 计算执行进度
   UIExecutionProgress _computeExecutionProgress(PipelineMergeState mergeState) {
-    final currentNode = mergeState.currentNode;
     final pausedJob = mergeState.pausedJob;
     final status = mergeState.status;
     
-    if (currentNode == null && pausedJob == null) {
-      return UIExecutionProgress.empty;
+    if (pausedJob == null) {
+      return UIExecutionProgress(executorStatus: status);
     }
     
     // 计算进度
     double progress = 0.0;
-    if (pausedJob != null && pausedJob.revisions.isNotEmpty) {
+    if (pausedJob.revisions.isNotEmpty) {
       progress = pausedJob.completedIndex / pausedJob.revisions.length;
     }
     
     return UIExecutionProgress(
-      currentStageName: currentNode?.data?.name,
+      currentStageName: mergeState.currentNodeId,
       progress: progress,
-      currentRevision: pausedJob?.currentRevision,
-      totalRevisions: pausedJob?.revisions.length ?? 0,
-      completedRevisions: pausedJob?.completedIndex ?? 0,
+      currentRevision: pausedJob.currentRevision,
+      totalRevisions: pausedJob.revisions.length,
+      completedRevisions: pausedJob.completedIndex,
       executorStatus: status,
     );
   }

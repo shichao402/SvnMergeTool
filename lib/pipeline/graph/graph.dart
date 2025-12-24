@@ -1,11 +1,9 @@
-/// Pipeline 图执行模块
+/// Pipeline 图模块
 /// 
-/// 基于 vyuh_node_flow 实现的流程图执行系统
+/// 基于 vyuh_node_flow 实现的流程图系统
 library;
 
-export 'stage_data.dart';
-export 'stage_definition.dart';
-export 'flow_generator.dart';
-export 'graph_executor.dart';
-export 'graph_pipeline_facade.dart';
-export 'merge_flow_builder.dart';
+// 图模块已迁移到新架构
+// - 节点类型定义: registry/
+// - 节点数据: data/
+// - 执行引擎: engine/flow_engine.dart
