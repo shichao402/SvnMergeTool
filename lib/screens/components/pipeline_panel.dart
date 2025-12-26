@@ -3,6 +3,7 @@
 /// 显示 Pipeline 执行状态、用户输入和控制指令
 library;
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../pipeline/engine/engine.dart';
 import '../../models/merge_job.dart';
@@ -51,6 +52,9 @@ class PipelinePanel extends StatefulWidget {
   /// 选中的节点 ID（即使没有快照也需要）
   final String? selectedNodeId;
 
+  /// 全局上下文信息
+  final Map<String, dynamic> globalContext;
+
   /// 清除选中回调
   final VoidCallback? onClearSelection;
 
@@ -68,6 +72,7 @@ class PipelinePanel extends StatefulWidget {
     this.onSubmitInput,
     this.selectedSnapshot,
     this.selectedNodeId,
+    this.globalContext = const {},
     this.onClearSelection,
   });
 
@@ -247,11 +252,22 @@ class _PipelinePanelState extends State<PipelinePanel> {
         // 节点基本信息
         _buildSnapshotInfoCard(snapshot),
         
-        // 输入数据
-        if (snapshot.inputData.isNotEmpty) ...[
+        // 全局上下文（始终显示，帮助用户了解可用变量）
+        if (widget.globalContext.isNotEmpty) ...[
           const SizedBox(height: 12),
           _buildExpandableSection(
-            '输入数据',
+            '全局上下文 (\${job.xxx})',
+            widget.globalContext,
+            Icons.public,
+            initiallyExpanded: false,
+          ),
+        ],
+        
+        // 输入数据
+        if (snapshot.inputData.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildExpandableSection(
+            '输入数据 (\${input.xxx})',
             snapshot.inputData,
             Icons.input,
           ),
@@ -261,7 +277,7 @@ class _PipelinePanelState extends State<PipelinePanel> {
         if (snapshot.config.isNotEmpty) ...[
           const SizedBox(height: 8),
           _buildExpandableSection(
-            '配置参数',
+            '配置参数 (\${config.xxx})',
             snapshot.config,
             Icons.settings,
           ),
@@ -531,8 +547,9 @@ class _PipelinePanelState extends State<PipelinePanel> {
   Widget _buildExpandableSection(
     String title,
     Map<String, dynamic> data,
-    IconData icon,
-  ) {
+    IconData icon, {
+    bool initiallyExpanded = true,
+  }) {
     return ExpansionTile(
       tilePadding: const EdgeInsets.symmetric(horizontal: 8),
       childrenPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -545,6 +562,7 @@ class _PipelinePanelState extends State<PipelinePanel> {
           color: Colors.purple.shade800,
         ),
       ),
+      initiallyExpanded: initiallyExpanded,
       dense: true,
       visualDensity: VisualDensity.compact,
       shape: RoundedRectangleBorder(
@@ -577,14 +595,8 @@ class _PipelinePanelState extends State<PipelinePanel> {
 
   String _formatJson(Map<String, dynamic> data) {
     if (data.isEmpty) return '{}';
-    final buffer = StringBuffer();
-    data.forEach((key, value) {
-      final valueStr = value is Map || value is List
-          ? value.toString()
-          : '"$value"';
-      buffer.writeln('  "$key": $valueStr,');
-    });
-    return '{\n${buffer.toString().trimRight().replaceAll(RegExp(r',\s*$'), '')}\n}';
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(data);
   }
 
   String _getSnapshotStatusText(NodeExecutionStatus status) {

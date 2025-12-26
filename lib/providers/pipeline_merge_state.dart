@@ -781,6 +781,21 @@ class PipelineMergeState extends ChangeNotifier {
       case ExecutionEventType.flowStarted:
         // 清空之前的快照
         _snapshots.clear();
+        // 设置全局上下文信息
+        if (_context != null) {
+          final job = _context!.job;
+          _snapshots.setGlobalContext({
+            'job': {
+              'jobId': job.jobId,
+              'sourceUrl': job.sourceUrl,
+              'targetWc': job.targetWc,
+              'currentRevision': job.currentRevision,
+              'revisions': job.revisions,
+              'completedIndex': job.completedIndex,
+            },
+            'workDir': _context!.workDir,
+          });
+        }
         break;
       default:
         break;

@@ -14,6 +14,7 @@ import '../pipeline/data/data.dart';
 import '../pipeline/registry/registry.dart';
 import '../services/logger_service.dart';
 import '../services/standard_flow_service.dart';
+import 'components/node_property_panel.dart';
 
 /// 流程编辑器界面
 class FlowEditorScreen extends StatefulWidget {
@@ -48,6 +49,9 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
   bool _showNodePanel = true;
   String _searchQuery = '';
   String? _selectedCategory;
+  
+  // 选中的节点
+  String? _selectedNodeId;
 
   @override
   void initState() {
@@ -218,6 +222,8 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
           if (_showNodePanel) _buildNodePanel(),
           // 编辑器主区域
           Expanded(child: _buildEditor()),
+          // 属性面板（选中节点时显示）
+          if (_selectedNodeId != null) _buildPropertyPanel(),
         ],
       ),
     );
@@ -540,8 +546,20 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
               ),
               node: NodeEvents(
                 onDragStop: (node) => setState(() => _isDirty = true),
-                onDeleted: (node) => setState(() => _isDirty = true),
+                onDeleted: (node) {
+                  setState(() {
+                    _isDirty = true;
+                    if (_selectedNodeId == node.id) {
+                      _selectedNodeId = null;
+                    }
+                  });
+                },
                 onContextMenu: _showNodeContextMenu,
+                onSelected: (node) {
+                  setState(() {
+                    _selectedNodeId = node?.id;
+                  });
+                },
               ),
             ),
           ),
@@ -663,6 +681,75 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
         ],
       ),
     );
+  }
+
+  /// 构建属性面板
+  Widget _buildPropertyPanel() {
+    final node = _controller.getNode(_selectedNodeId!);
+    if (node == null) {
+      return const SizedBox.shrink();
+    }
+
+    final typeDef = NodeTypeRegistry.instance.get(node.data.typeId);
+    if (typeDef == null) {
+      return const SizedBox.shrink();
+    }
+
+    return NodePropertyPanel(
+      typeDef: typeDef,
+      config: node.data.config,
+      onConfigChanged: (newConfig) {
+        _updateNodeConfig(_selectedNodeId!, newConfig);
+      },
+      onClose: () {
+        setState(() => _selectedNodeId = null);
+        _controller.clearSelection();
+      },
+    );
+  }
+
+  /// 更新节点配置
+  void _updateNodeConfig(String nodeId, Map<String, dynamic> newConfig) {
+    final node = _controller.getNode(nodeId);
+    if (node == null) return;
+
+    final typeDef = NodeTypeRegistry.instance.get(node.data.typeId);
+    if (typeDef == null) return;
+
+    // 保存当前位置和连接
+    final position = node.position.value;
+    final connections = _controller.connections
+        .where((c) => c.sourceNodeId == nodeId || c.targetNodeId == nodeId)
+        .toList();
+
+    // 删除旧节点（会同时删除连接）
+    _controller.removeNode(nodeId);
+
+    // 创建新节点（使用相同的 ID 和位置）
+    final nodeData = NodeData(
+      id: nodeId,
+      typeId: node.data.typeId,
+      x: position.dx,
+      y: position.dy,
+      config: newConfig,
+    );
+    final newNode = _adapter.createViewNode(typeDef, nodeData);
+    _controller.addNode(newNode);
+
+    // 恢复连接
+    for (final conn in connections) {
+      _controller.addConnection(Connection(
+        id: conn.id,
+        sourceNodeId: conn.sourceNodeId,
+        sourcePortId: conn.sourcePortId,
+        targetNodeId: conn.targetNodeId,
+        targetPortId: conn.targetPortId,
+      ));
+    }
+
+    // 重新选中节点
+    _controller.selectNode(nodeId);
+    setState(() => _isDirty = true);
   }
 
   /// 打开流程

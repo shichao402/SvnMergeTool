@@ -172,11 +172,22 @@ class ExecutionSnapshots {
   /// 节点快照映射（nodeId -> snapshot）
   final Map<String, NodeSnapshot> _snapshots = {};
 
+  /// 全局上下文信息（job 属性等）
+  Map<String, dynamic> _globalContext = {};
+
   /// 默认构造函数
   ExecutionSnapshots();
 
   /// 获取所有快照
   Map<String, NodeSnapshot> get all => Map.unmodifiable(_snapshots);
+
+  /// 获取全局上下文
+  Map<String, dynamic> get globalContext => Map.unmodifiable(_globalContext);
+
+  /// 设置全局上下文
+  void setGlobalContext(Map<String, dynamic> context) {
+    _globalContext = Map<String, dynamic>.from(context);
+  }
 
   /// 获取指定节点的快照
   NodeSnapshot? get(String nodeId) => _snapshots[nodeId];
@@ -189,6 +200,7 @@ class ExecutionSnapshots {
   /// 清空所有快照
   void clear() {
     _snapshots.clear();
+    _globalContext.clear();
   }
 
   /// 是否为空
@@ -199,17 +211,26 @@ class ExecutionSnapshots {
 
   /// 转为 JSON
   Map<String, dynamic> toJson() {
-    return _snapshots.map((key, value) => MapEntry(key, value.toJson()));
+    return {
+      'globalContext': _globalContext,
+      'snapshots': _snapshots.map((key, value) => MapEntry(key, value.toJson())),
+    };
   }
 
   /// 从 JSON 创建
   factory ExecutionSnapshots.fromJson(Map<String, dynamic> json) {
     final snapshots = ExecutionSnapshots();
-    for (final entry in json.entries) {
-      snapshots.set(
-        entry.key,
-        NodeSnapshot.fromJson(entry.value as Map<String, dynamic>),
-      );
+    if (json.containsKey('globalContext')) {
+      snapshots.setGlobalContext(Map<String, dynamic>.from(json['globalContext'] as Map? ?? {}));
+    }
+    final snapshotsData = json['snapshots'] as Map<String, dynamic>? ?? json;
+    for (final entry in snapshotsData.entries) {
+      if (entry.value is Map<String, dynamic>) {
+        snapshots.set(
+          entry.key,
+          NodeSnapshot.fromJson(entry.value as Map<String, dynamic>),
+        );
+      }
     }
     return snapshots;
   }

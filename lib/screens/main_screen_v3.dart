@@ -62,6 +62,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
   PreloadProgress _preloadProgress = const PreloadProgress();
   PreloadSettings _preloadSettings = const PreloadSettings();
   String? _selectedNodeId; // 流程图中选中的节点 ID
+  double _panelWidth = 320.0; // 右侧面板宽度
 
   // ============ Services ============
   final _logFileCacheService = LogFileCacheService();
@@ -716,9 +717,23 @@ class _MainScreenV3State extends State<MainScreenV3> {
                       )
                     : const Center(child: Text('加载流程图...')),
               ),
-              // 右侧：控制面板
+              // 右侧：可拖动宽度的控制面板
+              MouseRegion(
+                cursor: SystemMouseCursors.resizeColumn,
+                child: GestureDetector(
+                  onHorizontalDragUpdate: (details) {
+                    setState(() {
+                      _panelWidth = (_panelWidth - details.delta.dx).clamp(280.0, 600.0);
+                    });
+                  },
+                  child: Container(
+                    width: 4,
+                    color: Colors.grey.shade300,
+                  ),
+                ),
+              ),
               SizedBox(
-                width: 320,
+                width: _panelWidth,
                 child: PipelinePanel(
                   status: mergeState.status,
                   currentNodeId: mergeState.currentNodeId,
@@ -733,6 +748,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
                       ? mergeState.snapshots.get(_selectedNodeId!)
                       : null,
                   selectedNodeId: _selectedNodeId,
+                  globalContext: mergeState.snapshots.globalContext,
                   onClearSelection: () {
                     setState(() => _selectedNodeId = null);
                   },

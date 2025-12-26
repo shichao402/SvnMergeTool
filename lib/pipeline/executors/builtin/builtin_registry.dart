@@ -5,6 +5,7 @@ import 'merge_executor.dart';
 import 'pause_executor.dart';
 import 'prepare_executor.dart';
 import 'review_executor.dart';
+import 'script_executor.dart';
 import 'update_executor.dart';
 
 /// 注册所有内置节点类型
@@ -23,4 +24,7 @@ void registerBuiltinNodeTypes() {
   // 流程控制节点
   registry.register(PauseExecutor.definition);
   registry.register(DebugExecutor.definition);
+
+  // 工具节点
+  registry.register(ScriptExecutor.definition);
 }
