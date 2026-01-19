@@ -34,6 +34,9 @@ class MergeExecutor {
 
       await wcManager.merge(sourceUrl, revision, targetWc);
 
+      // 标记当前 revision 已被合并
+      context.markRevisionMerged();
+
       context.info('r$revision 合并成功');
       return NodeOutput.success(
         data: {

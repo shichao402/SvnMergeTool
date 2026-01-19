@@ -25,10 +25,10 @@ class NodeLayout {
   static const double portAreaBottomPadding = 18.0;
   
   /// 节点最小宽度
-  static const double minWidth = 100.0;
+  static const double minWidth = 120.0;
   
   /// 节点最大宽度
-  static const double maxWidth = 200.0;
+  static const double maxWidth = 220.0;
   
   /// 节点内边距（水平）
   static const double horizontalPadding = 8.0;

@@ -569,7 +569,7 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
   }
 
   /// 显示节点右键菜单
-  void _showNodeContextMenu(Node<VyuhNodeData> node, Offset position) {
+  void _showNodeContextMenu(Node<VyuhNodeData> node, ScreenPosition position) {
     final deleteShortcut = Platform.isMacOS ? '⌫' : 'Delete';
     
     showMenu<String>(

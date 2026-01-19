@@ -64,6 +64,9 @@ class ExecutionContext {
   /// 暂停恢复 Completer
   Completer<void>? _pauseCompleter;
 
+  /// 当前 revision 是否已被合并（由 merge 节点设置）
+  bool _revisionMerged = false;
+
   ExecutionContext({
     required this.job,
     required this.svnService,
@@ -80,6 +83,14 @@ class ExecutionContext {
 
   /// 是否已暂停
   bool get isPaused => _isPaused;
+
+  /// 当前 revision 是否已被合并
+  bool get revisionMerged => _revisionMerged;
+
+  /// 标记当前 revision 已被合并（由 merge 节点调用）
+  void markRevisionMerged() {
+    _revisionMerged = true;
+  }
 
   /// 取消执行
   void cancel() {
@@ -282,6 +293,7 @@ class ExecutionContext {
     _isCancelled = false;
     _isPaused = false;
     _pauseCompleter = null;
+    _revisionMerged = false;
   }
 }
 

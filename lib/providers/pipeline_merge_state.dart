@@ -564,6 +564,16 @@ class PipelineMergeState extends ChangeNotifier {
           job = _jobs[jobIndex];
           await _storageService.saveQueue(_jobs);
           _appendLog('[INFO] r$rev 处理完成');
+          
+          // 只有当 merge 节点真正执行了合并操作时，才更新 mergeinfo 缓存
+          if (_context!.revisionMerged) {
+            await _mergeInfoService.addMergedRevision(
+              job.sourceUrl,
+              job.targetWc,
+              rev,
+            );
+            _appendLog('[DEBUG] r$rev 已标记为已合并');
+          }
         } else if (_status == ExecutorStatus.paused) {
           // 等待用户输入，任务暂停
           _jobs[jobIndex] = job.copyWith(
@@ -629,12 +639,8 @@ class PipelineMergeState extends ChangeNotifier {
       pauseReason: '',
     );
 
-    // 更新 mergeinfo 缓存
-    await _mergeInfoService.addMergedRevisions(
-      job.sourceUrl,
-      job.targetWc,
-      job.revisions.toSet(),
-    );
+    // 注意：mergeinfo 缓存已在每个 revision 执行成功时更新
+    // 只有真正执行了 merge 节点的 revision 才会被标记为已合并
 
     await _storageService.saveQueue(_jobs);
     _status = ExecutorStatus.completed;
