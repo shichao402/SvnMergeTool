@@ -39,7 +39,7 @@ class FlowEditorScreen extends StatefulWidget {
 class _FlowEditorScreenState extends State<FlowEditorScreen> {
   /// Vyuh 适配器（节点创建的唯一入口）
   final _adapter = VyuhAdapter();
-  late NodeFlowController<VyuhNodeData> _controller;
+  late NodeFlowController<VyuhNodeData, VyuhConnectionData> _controller;
   String? _currentFilePath;
   bool _isDirty = false;
   String _flowName = '未命名流程';
@@ -122,7 +122,7 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
 
     // 添加连接
     for (final connData in graphData.connections) {
-      final connection = Connection(
+      final connection = Connection<VyuhConnectionData>(
         id: connData.id,
         sourceNodeId: connData.sourceNodeId,
         sourcePortId: connData.sourcePortId,
@@ -500,10 +500,9 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
     );
   }
 
-  /// 编辑器主题（启用端口标签显示）
+  /// 编辑器主题（端口标签样式）
   static final _editorTheme = NodeFlowTheme.light.copyWith(
     portTheme: PortTheme.light.copyWith(
-      showLabel: true,
       labelTextStyle: const TextStyle(
         fontSize: 10.0,
         color: Color(0xFF333333),
@@ -534,7 +533,7 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
         final isHovering = candidateData.isNotEmpty;
         return Container(
           color: isHovering ? Colors.blue.shade50 : Colors.grey.shade100,
-          child: NodeFlowEditor<VyuhNodeData>(
+          child: NodeFlowEditor<VyuhNodeData, VyuhConnectionData>(
             controller: _controller,
             behavior: NodeFlowBehavior.design,
             theme: _editorTheme,

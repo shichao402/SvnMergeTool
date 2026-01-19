@@ -755,7 +755,7 @@ packages:
       path: "packages/vyuh_node_flow/packages/vyuh_node_flow"
       relative: true
     source: path
-    version: "0.14.1"
+    version: "0.23.9"
   watcher:
     dependency: transitive
     description:

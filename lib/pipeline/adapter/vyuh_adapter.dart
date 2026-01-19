@@ -41,15 +41,18 @@ class VyuhNodeData implements vyuh.NodeData {
   );
 }
 
+/// 连接数据类型别名（我们不需要连接携带额外数据）
+typedef VyuhConnectionData = void;
+
 /// Vyuh Node Flow 适配器
 ///
 /// 将 vyuh_node_flow 组件适配到通用接口。
 /// 这是创建 vyuh 节点的**唯一入口**，确保节点格式一致。
 class VyuhAdapter
-    implements IFlowEditorAdapter<vyuh.NodeFlowController<VyuhNodeData>, vyuh.Node<VyuhNodeData>> {
+    implements IFlowEditorAdapter<vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData>, vyuh.Node<VyuhNodeData>> {
   @override
-  vyuh.NodeFlowController<VyuhNodeData> createController() {
-    return vyuh.NodeFlowController<VyuhNodeData>(
+  vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> createController() {
+    return vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData>(
       config: vyuh.NodeFlowConfig(
         snapToGrid: true,
         gridSize: 20,
@@ -132,7 +135,7 @@ class VyuhAdapter
         position: isInput ? vyuh.PortPosition.left : vyuh.PortPosition.right,
         type: isInput ? vyuh.PortType.input : vyuh.PortType.output,
         offset: Offset(0, offsetY),
-        showLabel: true,
+        showLabel: true,  // 启用端口标签
         multiConnections: isInput,  // 输入端口允许多连接，输出端口只能连一个
         shape: spec.role == PortRole.error 
             ? vyuh.MarkerShapes.diamond 
@@ -156,18 +159,18 @@ class VyuhAdapter
   VyuhNodeData getNodeData(vyuh.Node<VyuhNodeData> node) => node.data;
 
   @override
-  void addNode(vyuh.NodeFlowController<VyuhNodeData> controller, vyuh.Node<VyuhNodeData> node) {
+  void addNode(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller, vyuh.Node<VyuhNodeData> node) {
     controller.addNode(node);
   }
 
   @override
-  void removeNode(vyuh.NodeFlowController<VyuhNodeData> controller, String nodeId) {
+  void removeNode(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller, String nodeId) {
     controller.removeNode(nodeId);
   }
 
   @override
-  void addConnection(vyuh.NodeFlowController<VyuhNodeData> controller, data.ConnectionData connection) {
-    controller.addConnection(vyuh.Connection(
+  void addConnection(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller, data.ConnectionData connection) {
+    controller.addConnection(vyuh.Connection<VyuhConnectionData>(
       id: connection.id,
       sourceNodeId: connection.sourceNodeId,
       sourcePortId: connection.sourcePortId,
@@ -177,13 +180,13 @@ class VyuhAdapter
   }
 
   @override
-  void removeConnection(vyuh.NodeFlowController<VyuhNodeData> controller, String connectionId) {
+  void removeConnection(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller, String connectionId) {
     controller.removeConnection(connectionId);
   }
 
   @override
   void updateNodePosition(
-    vyuh.NodeFlowController<VyuhNodeData> controller,
+    vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller,
     String nodeId,
     double x,
     double y,
@@ -192,7 +195,7 @@ class VyuhAdapter
   }
 
   @override
-  data.FlowGraphData exportGraph(vyuh.NodeFlowController<VyuhNodeData> controller) {
+  data.FlowGraphData exportGraph(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller) {
     final graph = controller.exportGraph();
 
     final nodes = graph.nodes.map((n) => data.NodeData(
@@ -218,7 +221,7 @@ class VyuhAdapter
   }
 
   @override
-  void importGraph(vyuh.NodeFlowController<VyuhNodeData> controller, data.FlowGraphData graph) {
+  void importGraph(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller, data.FlowGraphData graph) {
     controller.clearGraph();
 
     // 添加节点
@@ -232,7 +235,7 @@ class VyuhAdapter
 
     // 添加连接
     for (final conn in graph.connections) {
-      controller.addConnection(vyuh.Connection(
+      controller.addConnection(vyuh.Connection<VyuhConnectionData>(
         id: conn.id,
         sourceNodeId: conn.sourceNodeId,
         sourcePortId: conn.sourcePortId,
@@ -243,20 +246,20 @@ class VyuhAdapter
   }
 
   @override
-  void clearGraph(vyuh.NodeFlowController<VyuhNodeData> controller) {
+  void clearGraph(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller) {
     controller.clearGraph();
   }
 
   @override
   Widget buildEditor({
-    required vyuh.NodeFlowController<VyuhNodeData> controller,
+    required vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller,
     required Widget Function(BuildContext context, vyuh.Node<VyuhNodeData> node) nodeBuilder,
     void Function(data.ConnectionData connection)? onConnectionCreated,
     void Function(String connectionId)? onConnectionRemoved,
     void Function(String nodeId)? onNodeSelected,
     void Function(String nodeId, double x, double y)? onNodeMoved,
   }) {
-    return vyuh.NodeFlowEditor<VyuhNodeData>(
+    return vyuh.NodeFlowEditor<VyuhNodeData, VyuhConnectionData>(
       controller: controller,
       behavior: vyuh.NodeFlowBehavior.design,
       theme: vyuh.NodeFlowTheme.light,
@@ -294,7 +297,7 @@ class VyuhAdapter
   }
 
   @override
-  void disposeController(vyuh.NodeFlowController<VyuhNodeData> controller) {
+  void disposeController(vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> controller) {
     controller.dispose();
   }
 }

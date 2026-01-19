@@ -50,7 +50,7 @@ class FlowExecutionView extends StatefulWidget {
 }
 
 class _FlowExecutionViewState extends State<FlowExecutionView> {
-  late vyuh.NodeFlowController<VyuhNodeData> _controller;
+  late vyuh.NodeFlowController<VyuhNodeData, VyuhConnectionData> _controller;
   final _adapter = VyuhAdapter();
 
   @override
@@ -98,7 +98,7 @@ class _FlowExecutionViewState extends State<FlowExecutionView> {
 
   @override
   Widget build(BuildContext context) {
-    return vyuh.NodeFlowViewer<VyuhNodeData>(
+    return vyuh.NodeFlowViewer<VyuhNodeData, VyuhConnectionData>(
       controller: _controller,
       theme: vyuh.NodeFlowTheme.light,
       nodeBuilder: (context, node) => _buildNodeContent(node),
