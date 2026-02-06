@@ -542,6 +542,7 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
               connection: ConnectionEvents(
                 onCreated: (conn) => setState(() => _isDirty = true),
                 onDeleted: (conn) => setState(() => _isDirty = true),
+                onContextMenu: _showConnectionContextMenu,
               ),
               node: NodeEvents(
                 onDragStop: (node) => setState(() => _isDirty = true),
@@ -565,6 +566,35 @@ class _FlowEditorScreenState extends State<FlowEditorScreen> {
         );
       },
     );
+  }
+
+  /// 显示连接右键菜单
+  void _showConnectionContextMenu(Connection<VyuhConnectionData> connection, ScreenPosition position) {
+    final deleteShortcut = Platform.isMacOS ? '⌫' : 'Delete';
+    
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      items: [
+        PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: [
+              const Icon(Icons.link_off, size: 18, color: Colors.red),
+              const SizedBox(width: 8),
+              const Text('断开连接', style: TextStyle(color: Colors.red)),
+              const Spacer(),
+              Text(deleteShortcut, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'delete') {
+        _controller.removeConnection(connection.id);
+        setState(() => _isDirty = true);
+      }
+    });
   }
 
   /// 显示节点右键菜单

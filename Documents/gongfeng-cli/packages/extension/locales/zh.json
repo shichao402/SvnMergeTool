@@ -1,0 +1,12 @@
+{
+  "buildMessage": "创建一个GongFeng CLI子命令或者CLI插件!",
+  "version": "版本",
+  "packageName": "npm 包名",
+  "commandName": "CLI命令名称",
+  "description": "描述",
+  "author": "作者",
+  "license": "开源协议",
+  "selectPackageManager": "选择包管理器",
+  "createSuccess": "成功创建",
+  "in": "在"
+}

@@ -1,0 +1,139 @@
+{
+  "name": "@tencent/gongfeng-cli",
+  "version": "0.25.3-beta.0",
+  "description": "工蜂CLI，在命令行下与工蜂高效协作",
+  "author": "GongFeng Developers",
+  "bin": {
+    "gf": "./bin/run"
+  },
+  "homepage": "https://git.woa.com/code/code-frontend/gongfeng-cli",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "repository": "gongfeng/cli",
+  "files": [
+    "/bin",
+    "/dist",
+    "/npm-shrinkwrap.json",
+    "/oclif.manifest.json"
+  ],
+  "dependencies": {
+    "@oclif/core": "^2",
+    "@oclif/plugin-autocomplete": "^2.2.0",
+    "@oclif/plugin-help": "^5",
+    "@oclif/plugin-plugins": "^2.4.7",
+    "@sentry/node": "^7.1.1",
+    "@tencent/code-plugin-update": "3.0.13",
+    "@tencent/gongfeng-cli-base": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-aicr": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-aiut": "^0.25.3-beta.0",
+    "@tencent/gongfeng-cli-plugin-auth": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-copilot": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-cr": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-env": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-extension": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-issue": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-mr": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-release": "^0.21.0-beta.0",
+    "@tencent/gongfeng-cli-plugin-repo": "^0.21.0-beta.0",
+    "debug": "^4.3.4",
+    "find-yarn-workspace-root": "^2.0.0",
+    "fs-extra": "^10.1.0",
+    "lodash": "^4.17.21",
+    "netrc-parser": "^3.1.6",
+    "qqjs": "^0.3.11",
+    "semver": "^7.3.8",
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "@oclif/test": "^2.3.20",
+    "@types/chai": "^4",
+    "@types/debug": "^4.1.7",
+    "@types/execa": "0.9.0",
+    "@types/fs-extra": "^9.0.13",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.18.31",
+    "@types/semver": "^7.3.12",
+    "@types/uuid": "^8.3.4",
+    "chai": "^4",
+    "execa": "0.11.0",
+    "globby": "^11",
+    "mocha": "^9",
+    "oclif": "^3",
+    "shx": "^0.3.3",
+    "ts-node": "^10.9.1",
+    "tslib": "^2.5.2",
+    "typescript": "^4.9.5"
+  },
+  "oclif": {
+    "bin": "gf",
+    "dirname": "gf",
+    "npmRegistry": "https://mirrors.tencent.com/npm",
+    "commands": "./dist/commands",
+    "plugins": [
+      "@oclif/plugin-help",
+      "@oclif/plugin-plugins",
+      "@oclif/plugin-autocomplete",
+      "@tencent/code-plugin-update",
+      "@tencent/gongfeng-cli-plugin-aicr",
+      "@tencent/gongfeng-cli-plugin-aiut",
+      "@tencent/gongfeng-cli-plugin-auth",
+      "@tencent/gongfeng-cli-plugin-copilot",
+      "@tencent/gongfeng-cli-plugin-cr",
+      "@tencent/gongfeng-cli-plugin-env",
+      "@tencent/gongfeng-cli-plugin-extension",
+      "@tencent/gongfeng-cli-plugin-mr",
+      "@tencent/gongfeng-cli-plugin-repo",
+      "@tencent/gongfeng-cli-plugin-issue",
+      "@tencent/gongfeng-cli-plugin-release"
+    ],
+    "hooks": {
+      "prerun": [
+        "./dist/hooks/prerun/analytics",
+        "./dist/hooks/prerun/sentry-init"
+      ],
+      "command_not_found": [
+        "./dist/hooks/command-not-found"
+      ]
+    },
+    "topicSeparator": " ",
+    "topics": {
+      "plugins": {
+        "description": "工蜂CLI插件"
+      }
+    },
+    "macos": {
+      "identifier": "com.tencent.gongfeng"
+    },
+    "update": {
+      "s3": {
+        "folder": "repository/generic/gongfeng-cli/files",
+        "host": "https://mirrors.tencent.com"
+      }
+    },
+    "helpClass": "./dist/help",
+    "additionalVersionFlags": [
+      "-v"
+    ],
+    "additionalHelpFlags": [
+      "-h"
+    ]
+  },
+  "scripts": {
+    "build": "shx rm -rf dist && tsc -b",
+    "lint": "eslint . --ext .ts --config .eslintrc",
+    "postpack": "shx rm -f oclif.manifest.json",
+    "posttest": "yarn lint",
+    "prepack": "yarn build && oclif manifest && oclif readme",
+    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "version": "oclif readme && git add README.md"
+  },
+  "engines": {
+    "node": ">=18.16.0"
+  },
+  "bugs": "https://github.com/packages/hello-world/issues",
+  "keywords": [
+    "GongFeng",
+    "GongFeng CLI"
+  ],
+  "types": "dist/index.d.ts"
+}

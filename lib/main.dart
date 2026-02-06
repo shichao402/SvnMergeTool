@@ -11,6 +11,7 @@ import 'services/svn_service.dart';
 import 'services/storage_service.dart';
 import 'services/logger_service.dart';
 import 'services/standard_flow_service.dart';
+import 'services/user_node_loader.dart';
 import 'screens/main_screen_v3.dart';
 import 'pipeline/executors/builtin/builtin_registry.dart';
 
@@ -64,6 +65,14 @@ void main() async {
       AppLogger.app.info('内置节点类型注册成功');
     } catch (e, stackTrace) {
       AppLogger.app.error('内置节点类型注册失败', e, stackTrace);
+    }
+
+    // 加载用户自定义节点
+    try {
+      final userNodeCount = await loadUserNodes();
+      AppLogger.app.info('用户节点加载成功，共 $userNodeCount 个');
+    } catch (e, stackTrace) {
+      AppLogger.app.error('用户节点加载失败', e, stackTrace);
     }
 
     // 初始化标准流程

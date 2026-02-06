@@ -1,0 +1,22 @@
+{
+  "currentRemoteNotFound": "当前项目 remote 没有找到!",
+  "projectNotFound": "未在工蜂找到该项目: ",
+  "openUrl": "在浏览器中打开 {{{url}}} 。",
+  "fetchIssues": "正在获取议题...",
+  "noIssues": "在 {{{projectPath}}} 中未找到议题。",
+  "authorTitle": "作者",
+  "title": "标题",
+  "state": "状态",
+  "labels": "标签",
+  "createdAt": "创建时间",
+  "opened": "打开",
+  "reopened": "打开",
+  "closed": "关闭",
+  "iidInvalid": "iid 格式不正确: \"{{iid}}\"",
+  "issueNotFound": "没有找到 iid 为 {{iid}} 的议题",
+  "userCreatedAt": "{{username}} 于{{createdAt}}创建",
+  "assignees": "负责人",
+  "viewIssueByUrl": "在 {{{url}}} 链接查看此议题",
+  "fetchProjectDetail": "正在获取工蜂项目信息...",
+  "fetchIssueDetail": "正在获取议题详情..."
+}

@@ -1,0 +1,15 @@
+{
+  "projectPathEmpty": "请输入项目路径",
+  "pathNotExist": "路径不存在",
+  "projectPathInvalid": "当前项目暂不支持",
+  "genProjectUnitTest": "正在生成单元测试, 请稍后...",
+  "genProjectUnitTestSuccess": "单元测试生成成功",
+  "genProjectUnitTestFailed": "单元测试生成失败",
+  "selectModel": "请选择模型",
+  "selectFramework": "请选择框架",
+  "selectCaseGenType": "请选择用例生成方式",
+  "inputIgnoreRule": "请输入忽略规则(glob语法, 多个用逗号分隔)",
+  "selectReferenceType": "请选择参考类型",
+  "inputReferencePath": "请输入参考文件路径",
+  "selectStyle": "请选择风格"
+}

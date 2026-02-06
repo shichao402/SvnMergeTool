@@ -1,0 +1,12 @@
+{
+  "buildMessage": "Time to build an GongFeng CLI subcommand or CLI plugin!",
+  "version": "version",
+  "packageName": "npm package name",
+  "commandName": "command bin name the CLI will export",
+  "description": "description",
+  "author": "author",
+  "license": "license",
+  "selectPackageManager": "Select a package manager",
+  "createSuccess": "Created success",
+  "in": "in"
+}

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "declaration": true,
+    "importHelpers": true,
+    "module": "commonjs",
+    "outDir": "dist",
+    "rootDirs": ["src", "test"],
+    "strict": true,
+    "target": "es2019",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "src/**/*"
+  ]
+}

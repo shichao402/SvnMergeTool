@@ -3,6 +3,7 @@ library;
 
 export 'commit_executor.dart';
 export 'debug_executor.dart';
+export 'gongfeng_cr_executor.dart';
 export 'merge_executor.dart';
 export 'pause_executor.dart';
 export 'prepare_executor.dart';

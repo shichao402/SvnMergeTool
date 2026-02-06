@@ -241,42 +241,8 @@ class _FlowExecutionViewState extends State<FlowExecutionView> {
                 ],
               ),
             ),
-            // 端口区域（简化显示）
-            if (typeDef != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // 输入端口
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: typeDef.inputs.map((port) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text(
-                            port.name,
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    // 输出端口
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: typeDef.outputs.map((port) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text(
-                            port.name,
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
+            // 端口区域占位（端口标签由 vyuh_node_flow 组件渲染）
+            const Expanded(child: SizedBox()),
           ],
         ),
       ),

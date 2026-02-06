@@ -48,6 +48,9 @@ dependencies:
   # YAML 解析（用于版本服务）
   yaml: ^3.1.2
   
+  # HTTP 客户端（用于 OAuth 认证）
+  http: ^1.2.0
+  
   # 节点流程图编辑器（本地子模块）
   vyuh_node_flow:
     path: packages/vyuh_node_flow/packages/vyuh_node_flow

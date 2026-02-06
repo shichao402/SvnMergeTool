@@ -1,0 +1,18 @@
+{
+  "openUrl": "Opening {{{url}}} in your browser.",
+  "currentRemoteNotFound": "Current project remote not found!",
+  "projectNotFound": "Project not found on GongFeng: ",
+  "fetchReleases": "Fetching releases...",
+  "noReleases": "No releases found in {{{projectPath}}}.",
+  "title": "Title",
+  "createFrom": "Create From",
+  "tagMessage": "Tag Message",
+  "labels": "Labels",
+  "description": "Description",
+  "attachments": "Attachments",
+  "userCreatedAt": "{{username}} created at {{createdAt}}",
+  "viewReleaseByUrl": "View this release at {{{url}}}",
+  "releaseNotFound": "No release found for title \"{{releaseTitle}}\"",
+  "fetchProjectDetail": "Fetching GongFeng project details...",
+  "fetchReleaseDetail": "Fetching release detail..."
+}

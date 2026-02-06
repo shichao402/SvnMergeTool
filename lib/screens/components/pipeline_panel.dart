@@ -8,6 +8,21 @@ import 'package:flutter/material.dart';
 import '../../pipeline/engine/engine.dart';
 import '../../models/merge_job.dart';
 
+/// 解码 {U+XXXX} 格式的 Unicode 转义字符
+/// 
+/// 某些情况下，中文字符可能被编码为 {U+XXXX} 格式存储，
+/// 此函数将其转换回实际的 Unicode 字符。
+String _decodeUnicodeEscapes(String input) {
+  return input.replaceAllMapped(
+    RegExp(r'\{U\+([0-9A-Fa-f]{4,6})\}'),
+    (match) {
+      final hex = match.group(1)!;
+      final codePoint = int.parse(hex, radix: 16);
+      return String.fromCharCode(codePoint);
+    },
+  );
+}
+
 /// Pipeline 执行面板
 /// 
 /// 整合了：
@@ -321,7 +336,7 @@ class _PipelinePanelState extends State<PipelinePanel> {
                 ),
                 const SizedBox(height: 8),
                 SelectableText(
-                  snapshot.error!,
+                  _decodeUnicodeEscapes(snapshot.error!),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.red.shade700,
@@ -596,7 +611,8 @@ class _PipelinePanelState extends State<PipelinePanel> {
   String _formatJson(Map<String, dynamic> data) {
     if (data.isEmpty) return '{}';
     const encoder = JsonEncoder.withIndent('  ');
-    return encoder.convert(data);
+    // 解码可能存在的 {U+XXXX} 格式 Unicode 转义
+    return _decodeUnicodeEscapes(encoder.convert(data));
   }
 
   String _getSnapshotStatusText(NodeExecutionStatus status) {

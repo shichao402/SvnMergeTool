@@ -1,0 +1,23 @@
+{
+  "currentRemoteNotFound": "Current project remote not found!",
+  "projectNotFound": "Project not found on GongFeng: ",
+  "openUrl": "Opening {{{url}}} in your browser.",
+  "fetchIssues": "Fetching issues...",
+  "noIssues": "No issues found in {{{projectPath}}}.",
+  "authorTitle": "Author",
+  "title": "Title",
+  "state": "State",
+  "labels": "Labels",
+  "createdAt": "Created At",
+  "opened": "Open",
+  "reopened": "Open",
+  "closed": "Closed",
+  "iidInvalid": "invalid issue format: \"{{iid}}\"",
+  "issueNotFound": "No issue found for iid \"{{iidOrBranch}}\"",
+  "userCreatedAt": "{{username}} created at {{createdAt}}",
+  "labelsDetail": "Labels: {{labelsStr}}",
+  "assignees": "Assignees",
+  "viewIssueByUrl": "View this issue at {{{url}}}",
+  "fetchProjectDetail": "Fetching GongFeng project details...",
+  "fetchIssueDetail": "Fetching issue detail..."
+}

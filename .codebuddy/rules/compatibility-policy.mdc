@@ -1,11 +1,7 @@
 ---
-description: 
+# Please note: Do not modify the header of this document. If modified, CodeBuddy (Internal Edition) will apply the default logic settings.
 alwaysApply: true
-enabled: true
-updatedAt: 2025-12-24T10:13:43.257Z
-provider: 
 ---
-
 # 兼容性策略规则
 
 ## 项目阶段

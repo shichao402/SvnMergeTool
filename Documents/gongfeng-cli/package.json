@@ -1,0 +1,78 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@tencent/tg-lint": "^0.6.0",
+    "@tencent/tg-postinstall": "^0.4.4",
+    "@tencent/tg-postinstall-engine-checkers": "^0.3.3",
+    "lerna": "^4.0.0"
+  },
+  "dependencies": {
+    "@tencent/tg-letra": "^0.7.2",
+    "lerna": "^4.0.0",
+    "shelljs": "^0.8.5"
+  },
+  "engines": {
+    "node": ">=18.16.0"
+  },
+  "workspaces": {
+    "packages": [
+      "packages/*"
+    ],
+    "nohoist": [
+      "**/execa",
+      "**/execa/**",
+      "**/@types/execa",
+      "**/@types/execa/**",
+      "**/qqjs",
+      "**/qqjs/**"
+    ]
+  },
+  "scripts": {
+    "clean": "yarn lerna clean --yes && yarn clean:tmp && yarn clean:root_node_modules && yarn clean:node_modules",
+    "clean:tmp": "rm -rf packages/*/tmp",
+    "clean:node_modules": "rm -rf packages/*/node_modules",
+    "clean:root_node_modules": "rm -rf node_modules",
+    "build": "yarn lerna bootstrap && yarn lerna run build",
+    "prepare:generate_repo_suffix": "node script/common/generate-repo-suffix.js",
+    "release:master": "node ./script/master/master-git-tag.js ",
+    "release:checkout_branch": "node ./script/release/release-checkout-branch.js",
+    "release:stable": "node ./script/release/release-git-tag.js",
+    "release:generate_mac": "node script/common/generate-macos-link.js",
+    "release:generate_win": "node script/common/generate-windows-link.js",
+    "release:upload": "node script/release/generate-release.js",
+    "pack:win": "cd packages/cli && npx oclif pack:win",
+    "pack:mac": "cd packages/cli && npx oclif pack:macos",
+    "pack:tarballs_win_x64": "cd packages/cli && npx oclif pack:tarballs --targets win32-x64",
+    "pack:tarballs_win_x86": "cd packages/cli && npx oclif pack:tarballs --targets win32-x86",
+    "pack:tarballs_mac_x64": "cd packages/cli && npx oclif pack:tarballs --targets darwin-x64",
+    "pack:tarballs_mac_arm64": "cd packages/cli && npx oclif pack:tarballs --targets darwin-arm64",
+    "pack:tarballs_linux": "cd packages/cli && npx oclif pack:tarballs --targets linux-x64,linux-arm",
+    "upload:win_x64": "cd packages/cli && ./bin/run upload:win --targets win32-x64",
+    "upload:win_x86": "cd packages/cli && ./bin/run upload:win --targets win32-x86",
+    "upload:win_x64_promote_beta": "cd packages/cli && ./bin/run upload:win --promote --channel beta --targets win32-x64",
+    "upload:win_x86_promote_beta": "cd packages/cli && ./bin/run upload:win --promote --channel beta --targets win32-x86",
+    "upload:win_x64_promote_stable": "cd packages/cli && ./bin/run upload:win --promote --targets win32-x64",
+    "upload:win_x86_promote_stable": "cd packages/cli && ./bin/run upload:win --promote --targets win32-x86",
+    "upload:mac_x64": "cd packages/cli && ./bin/run upload:macos --targets darwin-x64",
+    "upload:mac_arm64": "cd packages/cli && ./bin/run upload:macos --targets darwin-arm64",
+    "upload:mac_x64_promote_beta": "cd packages/cli && ./bin/run upload:macos --promote --channel beta --targets darwin-x64",
+    "upload:mac_arm64_promote_beta": "cd packages/cli && ./bin/run upload:macos --promote --channel beta --targets darwin-arm64",
+    "upload:mac_x64_promote_stable": "cd packages/cli && ./bin/run upload:macos --promote --targets darwin-x64",
+    "upload:mac_arm64_promote_stable": "cd packages/cli && ./bin/run upload:macos --promote --targets darwin-arm64",
+    "upload:tarballs_win_x64": "cd packages/cli && ./bin/run upload:tarballs --targets win32-x64",
+    "upload:tarballs_win_x86": "cd packages/cli && ./bin/run upload:tarballs --targets win32-x86",
+    "upload:tarballs_mac_x64": "cd packages/cli && ./bin/run upload:tarballs --targets darwin-x64",
+    "upload:tarballs_mac_arm64": "cd packages/cli && ./bin/run upload:tarballs --targets darwin-arm64",
+    "upload:tarballs_linux": "cd packages/cli && ./bin/run upload:tarballs --targets linux-x64,linux-arm",
+    "promote:win_x64": "node script/common/oclif-promote-win-x64.js",
+    "promote:win_x86": "node script/common/oclif-promote-win-x86.js",
+    "promote:mac_x64": "node script/common/oclif-promote-mac-x64.js",
+    "promote:mac_arm64": "node script/common/oclif-promote-mac-arm64.js",
+    "promote:linux": "node script/common/oclif-promote-linux.js",
+    "postinstall": "tg-postinstall && tg-lint init",
+    "lint:eslint": "tg-lint eslint --ext .js . && eslint --ext .js,.ts .",
+    "lint:eslint:fix": "tg-lint eslint --fix --ext .js .",
+    "lint:prettier": "tg-lint prettier --write .",
+    "cz": "tg-letra commit"
+  }
+}

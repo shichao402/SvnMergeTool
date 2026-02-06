@@ -1,0 +1,19 @@
+{
+  "askAI": "正在询问工蜂 Copilot...",
+  "noReturn": "工蜂 Copilot 没有返回结果",
+  "confirm": "选择操作",
+  "copy": "复制命令",
+  "cancel": "取消",
+  "edit": "修改命令",
+  "enterQuestion": "描述您想要的修改",
+  "copyCommand": "已复制命令: {{{command}}} 到剪切板",
+  "dividingLine": "----------------------------{{title}}----------------------------",
+  "firstQuestionLine": "命令",
+  "firstAnswerLine": "解释",
+  "explaining": "解释中...",
+  "queryLine": "查询",
+  "score": "反馈",
+  "help": "Copilot 的回复内容是否对您有帮助？",
+  "yes": "是",
+  "no": "否"
+}

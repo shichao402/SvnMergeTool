@@ -1,0 +1,19 @@
+{
+  "askAI": "Asking GongFeng copilot...",
+  "noReturn": "GongFeng copilot did not return results",
+  "confirm": "Select action",
+  "copy": "Copy shell command",
+  "cancel": "Cancel",
+  "edit": "Revise query",
+  "enterQuestion": "Enter your question",
+  "copyCommand": "Copied command: {{{command}}} to clipboard",
+  "dividingLine": "----------------------------{{title}}----------------------------",
+  "firstQuestionLine": "Command",
+  "firstAnswerLine": "Explanation",
+  "explaining": "Explaining...",
+  "queryLine": "Queries",
+  "score": "Feedback",
+  "help": "Was Copilot's response helpful?",
+  "yes": "Yes",
+  "no": "No"
+}

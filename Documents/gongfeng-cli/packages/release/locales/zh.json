@@ -1,0 +1,18 @@
+{
+  "openUrl": "在浏览器中打开 {{{url}}} 。",
+  "currentRemoteNotFound": "当前项目 remote 没有找到!",
+  "projectNotFound": "未在工蜂找到该项目: ",
+  "fetchReleases": "正在获取 release...",
+  "noReleases": "在 {{{projectPath}}} 中未找到 release。",
+  "title": "标题",
+  "createFrom": "创建自",
+  "tagMessage": "Tag Message",
+  "labels": "标签",
+  "description": "描述",
+  "attachments": "附件",
+  "userCreatedAt": "{{username}} 于{{createdAt}}创建",
+  "viewReleaseByUrl": "在 {{{url}}} 链接查看此 release",
+  "releaseNotFound": "没有找到标题为 {{releaseTitle}} 的 release",
+  "fetchProjectDetail": "正在获取工蜂项目信息...",
+  "fetchReleaseDetail": "正在获取 release 详情..."
+}

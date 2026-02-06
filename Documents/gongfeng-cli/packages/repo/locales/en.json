@@ -1,0 +1,8 @@
+{
+  "fetchProjectDetail": "Fetching GongFeng project details...",
+  "projectNotFound": "Project not found on GongFeng: ",
+  "openUrl": "Opening {{{url}}} in your browser.",
+  "emptyReadme": "README.md does not existed or is empty.",
+  "viewRepositoryByUrl": "View this repository at {{{url}}}",
+  "currentRemoteNotFound": "Current project remote not found!"
+}

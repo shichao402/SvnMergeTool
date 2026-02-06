@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../pipeline/registry/registry.dart';
+import '../../services/script_path_service.dart';
 
 /// 节点属性编辑面板
 class NodePropertyPanel extends StatefulWidget {
@@ -364,44 +365,82 @@ class _NodePropertyPanelState extends State<NodePropertyPanel> {
 
   Widget _buildPathField(ParamSpec param, {required bool isDirectory}) {
     final controller = _textControllers[param.key];
+    final currentValue = controller?.text ?? '';
+    final isRelative = ScriptPathService.isRelativePath(currentValue);
     
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            decoration: InputDecoration(
-              hintText: isDirectory ? '选择目录' : '选择文件',
-              isDense: true,
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  hintText: isDirectory ? '选择目录' : '选择文件或输入 @scripts/xxx.py',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  prefixIcon: isRelative 
+                      ? const Icon(Icons.link, size: 18, color: Colors.green)
+                      : null,
+                ),
+                onChanged: (value) => _updateConfig(param.key, value),
+              ),
             ),
-            onChanged: (value) => _updateConfig(param.key, value),
-          ),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-          icon: Icon(isDirectory ? Icons.folder_open : Icons.file_open),
-          onPressed: () async {
-            if (isDirectory) {
-              final result = await FilePicker.platform.getDirectoryPath();
-              if (result != null) {
-                controller?.text = result;
-                _updateConfig(param.key, result);
-              }
-            } else {
-              final result = await FilePicker.platform.pickFiles();
-              if (result != null && result.files.isNotEmpty) {
-                final path = result.files.first.path;
-                if (path != null) {
-                  controller?.text = path;
-                  _updateConfig(param.key, path);
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(isDirectory ? Icons.folder_open : Icons.file_open),
+              onPressed: () async {
+                if (isDirectory) {
+                  final result = await FilePicker.platform.getDirectoryPath();
+                  if (result != null) {
+                    controller?.text = result;
+                    _updateConfig(param.key, result);
+                  }
+                } else {
+                  final result = await FilePicker.platform.pickFiles();
+                  if (result != null && result.files.isNotEmpty) {
+                    final path = result.files.first.path;
+                    if (path != null) {
+                      // 如果文件在脚本目录下，自动转换为相对路径
+                      final finalPath = ScriptPathService.toRelativePath(path);
+                      controller?.text = finalPath;
+                      _updateConfig(param.key, finalPath);
+                    }
+                  }
                 }
-              }
-            }
-          },
-          tooltip: isDirectory ? '浏览目录' : '浏览文件',
+              },
+              tooltip: isDirectory ? '浏览目录' : '浏览文件',
+            ),
+          ],
         ),
+        // 显示相对路径提示
+        if (isRelative && !isDirectory)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '相对路径 → ${ScriptPathService.toAbsolutePath(currentValue)}',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        // 显示脚本目录提示
+        if (!isDirectory && currentValue.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '提示: 将脚本放入 ~/.svn_flow/scripts/ 可使用相对路径',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
       ],
     );
   }

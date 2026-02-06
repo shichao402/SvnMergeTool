@@ -1,0 +1,97 @@
+{
+  "name": "@tencent/gongfeng-cli-plugin-mr",
+  "version": "0.21.0-beta.0",
+  "description": "Core mr plugin for GongFeng CLI",
+  "author": "zengmanqing @Zlaojie",
+  "bin": {
+    "gf": "./bin/run"
+  },
+  "homepage": "https://git.woa.com/code/code-frontend/gongfeng-cli/tree/master/packages/mr",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "repository": "https://git.woa.com/code/code-frontend/gongfeng-cli/tree/master/packages/mr",
+  "files": [
+    "/bin",
+    "/dist",
+    "/npm-shrinkwrap.json",
+    "/oclif.manifest.json"
+  ],
+  "dependencies": {
+    "@inquirer/core": "^0.0.20-alpha.0",
+    "@oclif/core": "^2",
+    "@oclif/plugin-help": "^5",
+    "@oclif/plugin-plugins": "^2.4.7",
+    "@sentry/node": "^7.1.1",
+    "@tencent/gongfeng-cli-base": "^0.21.0-beta.0",
+    "@types/i18n": "^0.13.2",
+    "@types/inquirer": "^8.2.1",
+    "add": "^2.0.6",
+    "axios": "^0.27.2",
+    "copyfiles": "^2.4.1",
+    "debug": "^4.3.4",
+    "i18n": "^0.15.0",
+    "inquirer": "^7.3.3",
+    "inquirer-checkbox-plus-prompt": "^1.0.1",
+    "inquirer-date-prompt": "^2.0.1",
+    "inquirer-press-to-continue": "^1.1.4",
+    "inquirer-search-checkbox": "^1.0.0",
+    "inquirer-search-list": "^1.2.6",
+    "lodash": "^4.17.21",
+    "open": "8.4.2",
+    "ora": "5.0.0",
+    "qs": "^6.10.3",
+    "reflect-metadata": "^0.1.13",
+    "split2": "^4.1.0",
+    "yarn": "^1.22.19"
+  },
+  "devDependencies": {
+    "@oclif/test": "^2.3.20",
+    "@tencent/tg-lint": "^0.6.0",
+    "@types/chai": "^4",
+    "@types/klaw-sync": "^6.0.0",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.18.31",
+    "@types/split2": "^3.2.1",
+    "@types/temp": "^0.8.29",
+    "chai": "^4",
+    "globby": "^11",
+    "inquirer": "^7.3.3",
+    "klaw-sync": "^3.0.0",
+    "mocha": "^9",
+    "nyc": "^15.1.0",
+    "oclif": "^3",
+    "shx": "^0.3.3",
+    "temp": "^0.8.3",
+    "ts-node": "^10.9.1",
+    "tslib": "^2.5.2",
+    "typescript": "^4.9.5"
+  },
+  "oclif": {
+    "bin": "gf",
+    "dirname": "gf",
+    "commands": "./dist/commands",
+    "plugins": [
+      "@oclif/plugin-help",
+      "@oclif/plugin-plugins"
+    ],
+    "topicSeparator": " "
+  },
+  "scripts": {
+    "copy": "copyfiles locales/*.json dist",
+    "build": "shx rm -rf dist && tsc -b && copyfiles locales/*.json dist",
+    "lint": "eslint . --ext .ts --config .eslintrc",
+    "postpack": "shx rm -f oclif.manifest.json",
+    "posttest": "yarn lint",
+    "prepack": "yarn build && oclif manifest && oclif readme",
+    "test": "nyc mocha --forbid-only \"test/**/*.test.ts\"",
+    "version": "oclif readme && git add README.md"
+  },
+  "engines": {
+    "node": ">=18.16.0"
+  },
+  "bugs": "https://git.woa.com/code/code-frontend/gongfeng-cli/issues",
+  "keywords": [
+    "oclif"
+  ],
+  "types": "dist/index.d.ts"
+}

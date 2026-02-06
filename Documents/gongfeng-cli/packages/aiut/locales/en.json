@@ -1,0 +1,15 @@
+{
+  "projectPathEmpty": "Please enter project path",
+  "pathNotExist": "Path does not exist",
+  "projectPathInvalid": "The current project does not support",
+  "genProjectUnitTest": "Generating unit tests...",
+  "genProjectUnitTestSuccess": "Unit tests generated successfully",
+  "genProjectUnitTestFailed": "Unit tests generated failed",
+  "selectModel": "Please select model",
+  "selectFramework": "Please select framework",
+  "selectCaseGenType": "Please select case generation type",
+  "inputIgnoreRule": "Please enter ignore rule (glob syntax, multiple separated by commas)",
+  "selectReferenceType": "Please select reference type",
+  "inputReferencePath": "Please enter reference path",
+  "selectStyle": "Please select style"
+}

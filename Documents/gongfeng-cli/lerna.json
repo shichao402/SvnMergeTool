@@ -1,0 +1,23 @@
+{
+  "version": "0.25.3-beta.0",
+  "packages": [
+    "packages/*"
+  ],
+  "useWorkspaces": true,
+  "npmClient": "yarn",
+  "command": {
+    "version": {
+      "allowBranch": [
+        "master",
+        "release-*"
+      ]
+    },
+    "publish": {
+      "ignoreChanges": [
+        "**/*.md",
+        "**/dist"
+      ],
+      "registry": "https://mirrors.tencent.com/npm/"
+    }
+  }
+}

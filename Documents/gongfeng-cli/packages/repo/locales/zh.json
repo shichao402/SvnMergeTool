@@ -1,0 +1,8 @@
+{
+  "fetchProjectDetail": "正在获取工蜂项目信息...",
+  "projectNotFound": "未在工蜂找到该项目: ",
+  "openUrl": "在浏览器中打开 {{{url}}} ",
+  "emptyReadme": "该仓库没有 README.md 或文件为空",
+  "viewRepositoryByUrl": "在 {{{url}}} 链接查看此仓库",
+  "currentRemoteNotFound": "当前项目 remote 没有找到!"
+}

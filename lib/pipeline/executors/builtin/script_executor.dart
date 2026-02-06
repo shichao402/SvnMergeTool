@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../services/script_path_service.dart';
 import '../../engine/execution_context.dart';
 import '../../engine/node_output.dart';
 import '../../registry/registry.dart';
@@ -16,13 +17,19 @@ import '../../registry/registry.dart';
 /// - job: 任务上下文 (JSON)
 ///
 /// 脚本应输出 JSON 格式的结果到 stdout。
+///
+/// 支持相对路径：
+/// - `@scripts/xxx.py` 会被解析为 `~/.svn_flow/scripts/xxx.py`
 class ScriptExecutor {
   static Future<NodeOutput> execute({
     required Map<String, dynamic> input,
     required Map<String, dynamic> config,
     required ExecutionContext context,
   }) async {
-    final scriptPath = config['scriptPath'] as String? ?? '';
+    final rawScriptPath = config['scriptPath'] as String? ?? '';
+    
+    // 将相对路径转换为绝对路径
+    final scriptPath = ScriptPathService.toAbsolutePath(rawScriptPath);
     final entryFunction = config['entryFunction'] as String? ?? 'main';
     final timeout = (config['timeout'] as num?)?.toInt() ?? 300;
 
@@ -42,8 +49,16 @@ class ScriptExecutor {
     context.debug('入口函数: $entryFunction');
 
     // 构建传递给脚本的数据
+    // 注意：config 中的 scriptPath、entryFunction、timeout 是执行器参数，不传给脚本
+    // 其他参数都是用户定义的节点参数，需要传给脚本
+    final scriptConfig = Map<String, dynamic>.from(config);
+    scriptConfig.remove('scriptPath');
+    scriptConfig.remove('entryFunction');
+    scriptConfig.remove('timeout');
+    
     final scriptInput = {
       'input': input,
+      'config': scriptConfig, // 节点配置参数
       'var': context.variables,
       'job': _buildJobContext(context),
     };
@@ -155,6 +170,7 @@ import os
 import sys
 import json
 import importlib.util
+import inspect
 
 # 获取输入数据
 input_json = os.environ.get('SCRIPT_INPUT', '{}')
@@ -178,11 +194,26 @@ if entry_func is None:
 
 # 执行并获取结果
 try:
-    result = entry_func(
-        input=script_input.get('input', {}),
-        var=script_input.get('var', {}),
-        job=script_input.get('job', {})
-    )
+    # 检查函数签名，支持新旧两种签名
+    sig = inspect.signature(entry_func)
+    params = list(sig.parameters.keys())
+    
+    # 新签名: main(input, config, var, job)
+    # 旧签名: main(input, var, job)
+    if 'config' in params:
+        result = entry_func(
+            input=script_input.get('input', {}),
+            config=script_input.get('config', {}),
+            var=script_input.get('var', {}),
+            job=script_input.get('job', {})
+        )
+    else:
+        # 向后兼容旧签名
+        result = entry_func(
+            input=script_input.get('input', {}),
+            var=script_input.get('var', {}),
+            job=script_input.get('job', {})
+        )
     
     # 确保结果是字典
     if result is None:
@@ -246,7 +277,7 @@ except Exception as e:
             label: '脚本路径',
             type: ParamType.path,
             required: true,
-            description: 'Python 脚本的完整路径',
+            description: 'Python 脚本路径。支持相对路径 @scripts/xxx.py（指向 ~/.svn_flow/scripts/）',
           ),
           ParamSpec(
             key: 'entryFunction',

@@ -1,0 +1,82 @@
+{
+  "name": "@tencent/gongfeng-cli-plugin-extension",
+  "description": "Core extension plugin for GongFeng CLI",
+  "version": "0.21.0-beta.0",
+  "author": "GongFeng",
+  "bin": {
+    "gf": "./bin/run"
+  },
+  "bugs": "https://git.woa.com/code/code-frontend/gongfeng-cli/issues",
+  "dependencies": {
+    "@oclif/core": "^2",
+    "@oclif/plugin-help": "^5",
+    "@oclif/plugin-plugins": "^2.4.7",
+    "@tencent/gongfeng-cli-base": "^0.21.0-beta.0",
+    "@types/i18n": "^0.13.2",
+    "copyfiles": "^2.4.1",
+    "i18n": "^0.15.0",
+    "lodash": "^4.17.21",
+    "reflect-metadata": "^0.1.13",
+    "yeoman-environment": "^3.9.1",
+    "yeoman-generator": "^5.6.1",
+    "yosay": "^2.0.2"
+  },
+  "devDependencies": {
+    "@oclif/test": "^2.3.20",
+    "@tencent/tg-lint": "^0.6.0",
+    "@types/chai": "^4",
+    "@types/lodash": "^4.14.182",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.18.31",
+    "@types/yeoman-generator": "^5.2.10",
+    "@types/yosay": "^2.0.1",
+    "chai": "^4",
+    "globby": "^11",
+    "mocha": "^9",
+    "nyc": "^15.1.0",
+    "oclif": "^3",
+    "shx": "^0.3.3",
+    "ts-node": "^10.9.1",
+    "tslib": "^2.5.2",
+    "typescript": "^4.9.5"
+  },
+  "engines": {
+    "node": ">=18.16.0"
+  },
+  "files": [
+    "/bin",
+    "/dist",
+    "/npm-shrinkwrap.json",
+    "/oclif.manifest.json"
+  ],
+  "homepage": "https://git.woa.com/code/hello-cli",
+  "keywords": [
+    "gongfeng-cli",
+    "oclif"
+  ],
+  "license": "MIT",
+  "main": "dist/index.js",
+  "oclif": {
+    "bin": "gf",
+    "dirname": "gf",
+    "commands": "./dist/commands",
+    "plugins": [
+      "@oclif/plugin-help",
+      "@oclif/plugin-plugins"
+    ],
+    "topicSeparator": " ",
+    "topics": {}
+  },
+  "repository": "code/cli",
+  "scripts": {
+    "copy": "copyfiles locales/*.json dist",
+    "build": "shx rm -rf dist && tsc -b && copyfiles locales/*.json dist",
+    "lint": "eslint . --ext .ts --config .eslintrc.js",
+    "postpack": "shx rm -f oclif.manifest.json",
+    "posttest": "yarn lint",
+    "prepack": "yarn build && oclif manifest && oclif readme",
+    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "version": "oclif readme && git add README.md"
+  },
+  "types": "dist/index.d.ts"
+}

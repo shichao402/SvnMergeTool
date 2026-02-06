@@ -1,11 +1,7 @@
 ---
-description: 
+# Please note: Do not modify the header of this document. If modified, CodeBuddy (Internal Edition) will apply the default logic settings.
 alwaysApply: true
-enabled: true
-updatedAt: 2025-12-19T09:31:25.318Z
-provider: 
 ---
-
 # vyuh_node_flow 流图组件规则
 
 ## 组件概述

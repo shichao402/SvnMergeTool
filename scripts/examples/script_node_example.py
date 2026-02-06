@@ -5,11 +5,15 @@ Script 节点示例脚本
 
 这是一个 Script 节点的示例脚本，展示如何编写自定义脚本。
 
-入口函数签名:
+入口函数签名（新版）:
+    def main(input: dict, config: dict, var: dict, job: dict) -> dict
+
+入口函数签名（旧版，仍然支持）:
     def main(input: dict, var: dict, job: dict) -> dict
 
 参数说明:
     - input: 上游节点输出的数据
+    - config: 节点配置参数（用户在节点属性面板设置的值）
     - var: 流程变量（可读写）
     - job: 任务上下文（只读）
         - jobId: 任务 ID
@@ -35,23 +39,28 @@ Script 节点示例脚本
 """
 
 
-def main(input: dict, var: dict, job: dict) -> dict:
+def main(input: dict, config: dict, var: dict, job: dict) -> dict:
     """
-    示例入口函数
+    示例入口函数（新签名，包含 config 参数）
     
     这个示例展示如何:
     1. 读取上游输入
-    2. 读取流程变量
-    3. 读取任务上下文
-    4. 返回结果和设置变量
+    2. 读取节点配置
+    3. 读取流程变量
+    4. 读取任务上下文
+    5. 返回结果和设置变量
     """
     # 打印调试信息（会显示在节点日志中）
     print(f"[DEBUG] 收到输入: {input}")
+    print(f"[DEBUG] 节点配置: {config}")
     print(f"[DEBUG] 流程变量: {var}")
     print(f"[DEBUG] 任务信息: jobId={job.get('jobId')}, revision={job.get('currentRevision')}")
     
     # 示例：从上游获取数据
     upstream_message = input.get('message', '无消息')
+    
+    # 示例：读取节点配置参数
+    custom_param = config.get('customParam', '默认值')
     
     # 示例：读取流程变量
     counter = var.get('counter', 0)
@@ -64,6 +73,7 @@ def main(input: dict, var: dict, job: dict) -> dict:
         'port': 'success',  # 或 'failure'
         'data': {
             'processedMessage': f"已处理: {upstream_message}",
+            'configValue': custom_param,
             'counter': new_counter,
             'revision': job.get('currentRevision'),
         },
@@ -77,7 +87,7 @@ def main(input: dict, var: dict, job: dict) -> dict:
     }
 
 
-def check_file_exists(input: dict, var: dict, job: dict) -> dict:
+def check_file_exists(input: dict, config: dict, var: dict, job: dict) -> dict:
     """
     示例：检查文件是否存在
     
@@ -85,7 +95,7 @@ def check_file_exists(input: dict, var: dict, job: dict) -> dict:
     """
     import os
     
-    file_path = input.get('filePath') or var.get('targetFile', '')
+    file_path = input.get('filePath') or config.get('filePath') or var.get('targetFile', '')
     
     if not file_path:
         return {
@@ -107,7 +117,7 @@ def check_file_exists(input: dict, var: dict, job: dict) -> dict:
     }
 
 
-def send_notification(input: dict, var: dict, job: dict) -> dict:
+def send_notification(input: dict, config: dict, var: dict, job: dict) -> dict:
     """
     示例：发送通知（HTTP 请求）
     
@@ -116,11 +126,11 @@ def send_notification(input: dict, var: dict, job: dict) -> dict:
     import urllib.request
     import json
     
-    webhook_url = var.get('webhookUrl', '')
+    webhook_url = config.get('webhookUrl') or var.get('webhookUrl', '')
     if not webhook_url:
         return {
             'port': 'failure',
-            'message': '未配置 webhookUrl 流程变量',
+            'message': '未配置 webhookUrl',
             'isSuccess': False,
         }
     
@@ -163,9 +173,12 @@ def send_notification(input: dict, var: dict, job: dict) -> dict:
 
 # 本地测试
 if __name__ == '__main__':
+    import json
+    
     # 模拟输入数据
     test_input = {'message': '测试消息', 'isSuccess': True}
-    test_var = {'counter': 5, 'webhookUrl': 'https://example.com/webhook'}
+    test_config = {'customParam': '自定义值', 'webhookUrl': 'https://example.com/webhook'}
+    test_var = {'counter': 5}
     test_job = {
         'jobId': 12345,
         'sourceUrl': 'svn://example.com/trunk',
@@ -177,11 +190,9 @@ if __name__ == '__main__':
     }
     
     print("=== 测试 main 函数 ===")
-    result = main(test_input, test_var, test_job)
+    result = main(test_input, test_config, test_var, test_job)
     print(f"结果: {json.dumps(result, indent=2, ensure_ascii=False)}")
     
     print("\n=== 测试 check_file_exists 函数 ===")
-    result = check_file_exists({'filePath': '/etc/hosts'}, {}, test_job)
+    result = check_file_exists({'filePath': '/etc/hosts'}, {}, {}, test_job)
     print(f"结果: {json.dumps(result, indent=2, ensure_ascii=False)}")
-    
-    import json
