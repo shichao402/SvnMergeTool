@@ -3,7 +3,6 @@
 /// 整合所有设置项，包括：
 /// - 预加载设置
 /// - 最大重试次数
-/// - 流程编辑器
 /// - 其他设置
 library;
 
@@ -14,7 +13,7 @@ import 'package:flutter/services.dart';
 import '../models/app_config.dart';
 import '../services/storage_service.dart';
 import '../services/logger_service.dart';
-import 'flow_editor_screen.dart';
+import '../utils/open_directory.dart';
 
 /// 设置界面返回的结果
 class SettingsResult {
@@ -27,10 +26,123 @@ class SettingsResult {
   });
 }
 
+/// 把"正整数 → 文本框文案"的规则统一成一行：值 `<= 0` 时显示空字符串，
+/// 否则显示十进制数字。
+///
+/// `_loadSettings` 在初始化 maxDays / maxCount / stopRevision 三个数字输入框时
+/// 用了同一条规则——抽出来既消重又便于测试 0/负数边界。
+@visibleForTesting
+String formatPositiveIntForField(int value) {
+  return value > 0 ? value.toString() : '';
+}
+
+/// 把 `DateTime` 渲染成 `yyyy-MM-dd`（截掉 `toIso8601String()` 的时间段）。
+///
+/// `_pickDate` 在用户确认日期后用同样的方式存入 `_stopDate` / `_stopDateController`。
+@visibleForTesting
+String formatStopDate(DateTime date) {
+  return date.toIso8601String().split('T').first;
+}
+
+/// 计算"指定日期截止"日期选择器初次展示时定位到的日期。
+///
+/// 规则（与原 `_pickDate` 完全一致）：
+/// 1. `stopDate` 非空且能 `DateTime.parse` 成功 → 用 parse 出的日期。
+/// 2. `stopDate` 为空 / 无法 parse → 回落到 `now - 90 天`。
+///
+/// 注：`DateTime.tryParse` 对 `'invalid-date'` 之类返回 null；空串也返回 null，
+/// 因此第二条覆盖"用户首次打开（stopDate=null）"和"已存的字符串损坏"两种情况。
+@visibleForTesting
+DateTime resolveStopDatePickerInitialDate({
+  required String? stopDate,
+  required DateTime now,
+}) {
+  final fallback = now.subtract(const Duration(days: 90));
+  if (stopDate == null) {
+    return fallback;
+  }
+  return DateTime.tryParse(stopDate) ?? fallback;
+}
+
+/// 把"设置界面表单输入"翻译成 [SettingsResult]。
+///
+/// 行为契约（与原 `_save` 完全一致）：
+/// - **数字字段**：`maxDays` / `maxCount` / `stopRevision` 的文本经 `trim` 后
+///   `int.tryParse`，失败 / 空串 → `0`（与 `PreloadSettings` 中"0 表示不限制"约定一致）。
+/// - **maxRetries**：同样 `trim + int.tryParse`，失败 / 空串 → [kDefaultMaxRetries]（默认重试次数，定义在 `models/app_config.dart`）。
+///   注意这里默认值是 [kDefaultMaxRetries]，**不是** 0——和上面三个字段不一样，单测会显式覆盖这条。
+/// - **stopDate**：`trim` 后若为空则结果为 `null`，否则保留 trim 后的字符串
+///   （不再做日期格式校验——保留原行为，由调用方负责确保日期串合法）。
+/// - 布尔字段 `preloadEnabled` / `stopOnBranchPoint` 直出，不做转换。
+///
+/// 不修改入参，返回新对象。
+@visibleForTesting
+SettingsResult parseSettingsFormInputs({
+  required String maxDaysText,
+  required String maxCountText,
+  required String stopRevisionText,
+  required String stopDateText,
+  required String maxRetriesText,
+  required bool preloadEnabled,
+  required bool stopOnBranchPoint,
+}) {
+  final maxDays = int.tryParse(maxDaysText.trim()) ?? 0;
+  final maxCount = int.tryParse(maxCountText.trim()) ?? 0;
+  final stopRevision = int.tryParse(stopRevisionText.trim()) ?? 0;
+  final trimmedStopDate = stopDateText.trim();
+  final stopDate = trimmedStopDate.isEmpty ? null : trimmedStopDate;
+  final maxRetries = int.tryParse(maxRetriesText.trim()) ?? kDefaultMaxRetries;
+
+  return SettingsResult(
+    preloadSettings: PreloadSettings(
+      enabled: preloadEnabled,
+      stopOnBranchPoint: stopOnBranchPoint,
+      maxDays: maxDays,
+      maxCount: maxCount,
+      stopRevision: stopRevision,
+      stopDate: stopDate,
+    ),
+    maxRetries: maxRetries,
+  );
+}
+
+/// 「打开本地目录」用的命令描述与解析函数已抽到 `lib/utils/open_directory.dart`，
+/// 跨库共享（settings_screen 打开日志目录、main_screen_v3 打开工作副本目录）。
+
+/// 比较"用户当前编辑的表单结果"与"打开设置页时传入的基线"，判断是否有未保存修改。
+///
+/// 真 bug 场景：用户在设置页改了 5 个数字 / 1 个日期 / 2 个 toggle，点 AppBar
+/// 左上 X 按钮，原 `Navigator.of(context).pop()` 直连，所有未保存输入静默丢失。
+/// 现用此函数做 dirty 检测 → 弹"丢弃修改？"确认 dialog。
+///
+/// 行为契约：
+/// - PreloadSettings 7 字段（enabled / stopOnBranchPoint / maxDays / maxCount /
+///   stopRevision / stopDate / maxRetries）任一与基线不等 → 返回 `true`。
+/// - PreloadSettings 没有 `operator ==`，所以**逐字段对比**——不能用引用相等。
+/// - stopDate 是 nullable String，用 `==` 直接比较即可（Dart String == 是值相等）。
+/// - 数字字段对比的是已经 parse 过的整数（由 `parseSettingsFormInputs` 处理），
+///   所以 "0" 与 "" 视为同一个 0、不算 dirty——和 `_save` 的解释保持一致。
+@visibleForTesting
+bool isSettingsFormDirty({
+  required SettingsResult current,
+  required PreloadSettings baselinePreload,
+  required int baselineMaxRetries,
+}) {
+  if (current.maxRetries != baselineMaxRetries) return true;
+  final p = current.preloadSettings;
+  if (p.enabled != baselinePreload.enabled) return true;
+  if (p.stopOnBranchPoint != baselinePreload.stopOnBranchPoint) return true;
+  if (p.maxDays != baselinePreload.maxDays) return true;
+  if (p.maxCount != baselinePreload.maxCount) return true;
+  if (p.stopRevision != baselinePreload.stopRevision) return true;
+  if (p.stopDate != baselinePreload.stopDate) return true;
+  return false;
+}
+
 class SettingsScreen extends StatefulWidget {
   /// 当前的预加载设置
   final PreloadSettings currentPreloadSettings;
-  
+
   /// 当前的最大重试次数
   final int currentMaxRetries;
 
@@ -71,10 +183,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 合并设置
   late int _maxRetries;
-  
-  // 流程设置
-  String? _selectedFlowPath;
-  List<_FlowInfo> _availableFlows = [];
 
   // 控制器
   final _maxDaysController = TextEditingController();
@@ -87,7 +195,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadSettings();
-    _loadAvailableFlows();
   }
 
   void _loadSettings() {
@@ -100,51 +207,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _stopRevision = preloadSettings.stopRevision;
     _stopDate = preloadSettings.stopDate;
 
-    _maxDaysController.text = _maxDays > 0 ? _maxDays.toString() : '';
-    _maxCountController.text = _maxCount > 0 ? _maxCount.toString() : '';
-    _stopRevisionController.text = _stopRevision > 0 ? _stopRevision.toString() : '';
+    _maxDaysController.text = formatPositiveIntForField(_maxDays);
+    _maxCountController.text = formatPositiveIntForField(_maxCount);
+    _stopRevisionController.text = formatPositiveIntForField(_stopRevision);
     _stopDateController.text = _stopDate ?? '';
 
     // 加载合并设置
     _maxRetries = widget.currentMaxRetries;
     _maxRetriesController.text = _maxRetries.toString();
-    
-    // 加载流程设置
-    StorageService().getSelectedFlowPath().then((path) {
-      if (mounted) {
-        setState(() => _selectedFlowPath = path);
-      }
-    });
-  }
-  
-  Future<void> _loadAvailableFlows() async {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.svn_flow/flows');
-    
-    final flows = <_FlowInfo>[];
-    
-    if (dir.existsSync()) {
-      for (final file in dir.listSync()) {
-        if (file is File && file.path.endsWith('.flow.json')) {
-          final name = file.path.split('/').last.replaceAll('.flow.json', '');
-          final modified = file.statSync().modified;
-          flows.add(_FlowInfo(
-            name: name,
-            path: file.path,
-            modified: modified,
-          ));
-        }
-      }
-    }
-    
-    // 按修改时间排序（最新的在前）
-    flows.sort((a, b) => b.modified.compareTo(a.modified));
-    
-    if (mounted) {
-      setState(() => _availableFlows = flows);
-    }
   }
 
+  /// **R129 widget lifecycle dispose 维度审计 — 档 3 stateful + owned Disposable
+  /// 同框架对照 `main_screen_v3.dart:_MainScreenV3State`**：
+  ///
+  /// 5 个 TextEditingController declaration → 5 个 dispose 调用 → super.dispose()
+  /// 末位。同 main_screen_v3 共享跨档不变量 I1（super 末位）/ I2（每 controller
+  /// 先释放）/ I3（1:1 owned-vs-disposed parity）/ I4（同序释放，无内部顺序约束）。
+  /// 详细三档框架说明见 `main_screen_v3.dart:dispose` 处 doc。
+  ///
+  /// **同形锁（R59 helper-vs-inline 在 widget lifecycle 维度的扩展）**：本类与
+  /// `_MainScreenV3State.dispose` 形态完全同形——controllers 同序逐个 dispose
+  /// + super.dispose 末位。如未来引入 ScrollController / FocusNode 等额外资源，
+  /// 两类必须**同时改**才不破同形（双类共享同模板）。
   @override
   void dispose() {
     _maxDaysController.dispose();
@@ -156,58 +240,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    // 解析预加载设置
-    final maxDays = int.tryParse(_maxDaysController.text.trim()) ?? 0;
-    final maxCount = int.tryParse(_maxCountController.text.trim()) ?? 0;
-    final stopRevision = int.tryParse(_stopRevisionController.text.trim()) ?? 0;
-    final stopDate = _stopDateController.text.trim().isEmpty
-        ? null
-        : _stopDateController.text.trim();
-
-    // 解析合并设置
-    final maxRetries = int.tryParse(_maxRetriesController.text.trim()) ?? 5;
-
-    // 创建新的预加载设置
-    final newPreloadSettings = PreloadSettings(
-      enabled: _preloadEnabled,
+    // 把表单文本翻译成结构化结果（纯函数）
+    final result = parseSettingsFormInputs(
+      maxDaysText: _maxDaysController.text,
+      maxCountText: _maxCountController.text,
+      stopRevisionText: _stopRevisionController.text,
+      stopDateText: _stopDateController.text,
+      maxRetriesText: _maxRetriesController.text,
+      preloadEnabled: _preloadEnabled,
       stopOnBranchPoint: _stopOnBranchPoint,
-      maxDays: maxDays,
-      maxCount: maxCount,
-      stopRevision: stopRevision,
-      stopDate: stopDate,
     );
+    final newPreloadSettings = result.preloadSettings;
+    final maxRetries = result.maxRetries;
 
     // 保存到持久化存储
     try {
       final storageService = StorageService();
-      await storageService.savePreloadSettings({
-        'enabled': newPreloadSettings.enabled,
-        'stop_on_branch_point': newPreloadSettings.stopOnBranchPoint,
-        'max_days': newPreloadSettings.maxDays,
-        'max_count': newPreloadSettings.maxCount,
-        'stop_revision': newPreloadSettings.stopRevision,
-        'stop_date': newPreloadSettings.stopDate,
-      });
+      // 直接复用 PreloadSettings.toJson()——与 SharedPreferences 扁平化存储约定的
+      // 6 个 snake_case 键完全一致（已比对 app_config.g.dart 中的 _$PreloadSettingsToJson）。
+      // 之前手动列举每个字段，每加一个新字段都要在 settings_screen 和 storage_service 两边改。
+      await storageService.savePreloadSettings(newPreloadSettings.toJson());
       await storageService.saveDefaultMaxRetries(maxRetries);
-      await storageService.saveSelectedFlowPath(_selectedFlowPath);
       AppLogger.ui.info('设置已保存');
     } catch (e, stackTrace) {
+      // 真 bug 修复：原 catch 仅写日志却仍 pop(result)，UI 显示"保存成功"实际未持久化，
+      // 下次启动配置丢失（磁盘满 / 权限拒绝 / SharedPreferences 写入失败时触发）。
+      // 现改为：弹 SnackBar 显示具体错误 + 提前 return（不 pop），让用户感知失败可重试或手动取消。
       AppLogger.ui.error('保存设置失败', e, stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存设置失败：$e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
     }
 
     if (mounted) {
-      Navigator.of(context).pop(SettingsResult(
-        preloadSettings: newPreloadSettings,
-        maxRetries: maxRetries,
-      ));
+      Navigator.of(context).pop(result);
+    }
+  }
+
+  /// 用户点击 AppBar 左上 X 关闭按钮时，先做 dirty 检测，dirty 时弹确认 dialog。
+  ///
+  /// 真 bug 修复：原 X 按钮 `onPressed: () => Navigator.of(context).pop()` 直连，
+  /// 用户编辑后误点 X，所有未保存输入静默丢失。现改为：dirty → 弹"丢弃修改？"
+  /// 确认 dialog，用户选"丢弃"才 pop，选"取消"留在设置页继续编辑或保存。
+  Future<void> _onClosePressed() async {
+    final current = parseSettingsFormInputs(
+      maxDaysText: _maxDaysController.text,
+      maxCountText: _maxCountController.text,
+      stopRevisionText: _stopRevisionController.text,
+      stopDateText: _stopDateController.text,
+      maxRetriesText: _maxRetriesController.text,
+      preloadEnabled: _preloadEnabled,
+      stopOnBranchPoint: _stopOnBranchPoint,
+    );
+    final dirty = isSettingsFormDirty(
+      current: current,
+      baselinePreload: widget.currentPreloadSettings,
+      baselineMaxRetries: widget.currentMaxRetries,
+    );
+    if (!dirty) {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('丢弃未保存的修改？'),
+        content: const Text('设置页有未保存的修改，关闭后将丢失。是否继续？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('丢弃'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      Navigator.of(context).pop();
     }
   }
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    final initialDate = _stopDate != null
-        ? DateTime.tryParse(_stopDate!) ?? now.subtract(const Duration(days: 90))
-        : now.subtract(const Duration(days: 90));
+    final initialDate = resolveStopDatePickerInitialDate(
+      stopDate: _stopDate,
+      now: now,
+    );
 
     final picked = await showDatePicker(
       context: context,
@@ -220,8 +349,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (picked != null) {
+      if (!mounted) return;
       setState(() {
-        _stopDate = picked.toIso8601String().split('T').first;
+        _stopDate = formatStopDate(picked);
         _stopDateController.text = _stopDate!;
       });
     }
@@ -231,19 +361,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final logDir = await logger.getLogDirectory();
       final dir = Directory(logDir);
-      
+
       // 确保目录存在
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
 
       // 使用系统命令打开目录
-      if (Platform.isMacOS) {
-        await Process.run('open', [logDir]);
-      } else if (Platform.isWindows) {
-        await Process.run('explorer', [logDir]);
-      } else if (Platform.isLinux) {
-        await Process.run('xdg-open', [logDir]);
+      final command = resolveOpenDirectoryCommand(
+        platform: Platform.operatingSystem,
+        path: logDir,
+      );
+      if (command != null) {
+        await Process.run(command.executable, command.args);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -262,12 +392,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('设置'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _onClosePressed,
           tooltip: '取消',
         ),
         actions: [
@@ -276,8 +408,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: const Icon(Icons.save),
             label: const Text('保存'),
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Theme.of(context).primaryColor,
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
             ),
           ),
           const SizedBox(width: 8),
@@ -296,8 +428,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Pipeline 选择
-                    _buildPipelineSelector(),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.account_tree),
+                      title: const Text('执行步骤'),
+                      subtitle: const Text(
+                        '当前版本固定使用四步执行：准备 -> 更新 -> 合并 -> 提交',
+                      ),
+                    ),
                     const Divider(),
                     // 最大重试次数
                     ListTile(
@@ -311,11 +449,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             suffixText: '次',
                           ),
                           keyboardType: TextInputType.number,
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
                         ),
                       ),
                     ),
@@ -409,11 +550,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             suffixText: '天',
                           ),
                           keyboardType: TextInputType.number,
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
                         ),
                       ),
                     ),
@@ -431,11 +575,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             suffixText: '条',
                           ),
                           keyboardType: TextInputType.number,
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
                         ),
                       ),
                     ),
@@ -453,11 +600,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             prefixText: 'r',
                           ),
                           keyboardType: TextInputType.number,
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
                         ),
                       ),
                     ),
@@ -476,7 +626,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: InputDecoration(
                             border: const OutlineInputBorder(),
                             isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             hintText: '点击选择',
                             suffixIcon: _stopDateController.text.isNotEmpty
                                 ? IconButton(
@@ -510,11 +661,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                          Icon(Icons.info_outline,
+                              color: Colors.blue.shade700, size: 20),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '预加载停止不影响手动翻页。您可以随时点击"加载全部"按钮加载更多日志。',
+                              '预加载停止不影响日志浏览。您可以随时在主界面点击"同步最新"或"加载更多"继续获取日志。',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.blue.shade900,
@@ -553,290 +705,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-  Widget _buildPipelineSelector() {
-    final currentFlowName = _selectedFlowPath != null
-        ? _selectedFlowPath!.split('/').last.replaceAll('.flow.json', '')
-        : '标准合并流程';
-    final isBuiltin = _selectedFlowPath == null;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 当前流程
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('当前流程'),
-          subtitle: Text(currentFlowName),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isBuiltin)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade100,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '内置',
-                    style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.shade100,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '自定义',
-                    style: TextStyle(fontSize: 12, color: Colors.purple.shade700),
-                  ),
-                ),
-              const SizedBox(width: 8),
-              const Icon(Icons.check_circle, color: Colors.green),
-            ],
-          ),
-        ),
-        const Divider(),
-        
-        // 流程选择
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            '选择流程',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade700,
-              fontSize: 13,
-            ),
-          ),
-        ),
-        
-        // 内置流程选项
-        _buildFlowOption(
-          name: '标准合并流程',
-          description: '内置的 SVN 合并流程',
-          isSelected: isBuiltin,
-          isBuiltin: true,
-          onTap: () => setState(() => _selectedFlowPath = null),
-        ),
-        
-        // 用户自定义流程
-        if (_availableFlows.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          ...(_availableFlows.map((flow) => _buildFlowOption(
-            name: flow.name,
-            description: '修改于 ${_formatDate(flow.modified)}',
-            isSelected: _selectedFlowPath == flow.path,
-            isBuiltin: false,
-            onTap: () => setState(() => _selectedFlowPath = flow.path),
-            onEdit: () => FlowEditorScreen.show(context, flowFilePath: flow.path),
-            onDelete: () => _deleteFlow(flow),
-          ))),
-        ],
-        
-        if (_availableFlows.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              '暂无自定义流程',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade500,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
-        
-        const Divider(),
-        
-        // 流程编辑器入口
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.purple.shade100,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.account_tree, color: Colors.purple.shade700),
-          ),
-          title: const Text('流程编辑器'),
-          subtitle: const Text('创建和编辑自定义流程'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () async {
-            await FlowEditorScreen.show(context);
-            // 返回后刷新流程列表
-            _loadAvailableFlows();
-          },
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildFlowOption({
-    required String name,
-    required String description,
-    required bool isSelected,
-    required bool isBuiltin,
-    required VoidCallback onTap,
-    VoidCallback? onEdit,
-    VoidCallback? onDelete,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.shade50 : null,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? Colors.blue : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: isSelected ? Colors.blue : Colors.grey,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      if (!isBuiltin) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.shade100,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '自定义',
-                            style: TextStyle(fontSize: 10, color: Colors.purple.shade700),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Text(
-                    description,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-            if (onEdit != null)
-              IconButton(
-                icon: const Icon(Icons.edit, size: 18),
-                onPressed: onEdit,
-                tooltip: '编辑',
-              ),
-            if (onDelete != null)
-              IconButton(
-                icon: Icon(Icons.delete, size: 18, color: Colors.red.shade400),
-                onPressed: onDelete,
-                tooltip: '删除',
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _deleteFlow(_FlowInfo flow) async {
-    // 确认对话框
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除流程'),
-        content: Text('确定要删除流程 "${flow.name}" 吗？\n\n此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      final file = File(flow.path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-
-      // 如果删除的是当前选中的流程，切换回内置流程
-      if (_selectedFlowPath == flow.path) {
-        setState(() => _selectedFlowPath = null);
-      }
-
-      // 刷新流程列表
-      _loadAvailableFlows();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已删除流程 "${flow.name}"')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: $e')),
-        );
-      }
-    }
-  }
-  
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    
-    if (diff.inDays == 0) {
-      return '今天 ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (diff.inDays == 1) {
-      return '昨天';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays} 天前';
-    } else {
-      return '${date.month}/${date.day}';
-    }
-  }
-}
-
-/// 流程信息
-class _FlowInfo {
-  final String name;
-  final String path;
-  final DateTime modified;
-  
-  _FlowInfo({
-    required this.name,
-    required this.path,
-    required this.modified,
-  });
 }
