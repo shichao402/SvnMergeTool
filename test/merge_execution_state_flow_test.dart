@@ -57,6 +57,7 @@ class _FakeWcManager extends WorkingCopyManager {
 
   /// 给每次 commit 调用的脚本：同上。
   List<String?> commitScript = const [];
+  List<SvnProcessResult?> commitResultScript = const [];
   int _commitCalls = 0;
   int get commitCalls => _commitCalls;
 
@@ -138,7 +139,7 @@ class _FakeWcManager extends WorkingCopyManager {
   }
 
   @override
-  Future<void> commit(
+  Future<SvnProcessResult> commit(
     String workingCopy,
     String message, {
     String? username,
@@ -148,6 +149,10 @@ class _FakeWcManager extends WorkingCopyManager {
     commitWorkingCopies.add(workingCopy);
     final fail = i < commitScript.length ? commitScript[i] : null;
     if (fail != null) throw StateError(fail);
+    final scriptedResult =
+        i < commitResultScript.length ? commitResultScript[i] : null;
+    if (scriptedResult != null) return scriptedResult;
+    return _ok(stdout: 'Committed revision 123.');
   }
 }
 
@@ -195,6 +200,7 @@ class _FakeSvn extends SvnService {
   Set<int>? mergedRevisions;
   final List<int> isRevisionMergedRevisions = [];
   final List<String> isRevisionMergedTargets = [];
+  Object? isRevisionMergedError;
 
   @override
   Future<String> getInfo(
@@ -291,9 +297,13 @@ class _FakeSvn extends SvnService {
     required String target,
     String? username,
     String? password,
+    bool throwOnError = false,
   }) async {
     isRevisionMergedRevisions.add(revision);
     isRevisionMergedTargets.add(target);
+    if (isRevisionMergedError != null) {
+      throw isRevisionMergedError!;
+    }
     return mergedRevisions?.contains(revision) ?? true;
   }
 }
@@ -624,6 +634,232 @@ void main() {
       expect(wc.commitCalls, 1);
       expect(mergeInfo.refreshCalls, 0);
       expect(svn.isRevisionMergedRevisions, isEmpty);
+    });
+
+    test('temporary sparse working copy：commit 返回非 0 不能提示成功或推进状态', () async {
+      final storage = _FakeStorage();
+      final wc = _FakeWcManager()
+        ..commitResultScript = [
+          SvnProcessResult(
+            exitCode: 1,
+            stdout: '',
+            stderr: 'svn: E165001: hook failed',
+            pid: 0,
+          ),
+        ];
+      final mergeInfo = _FakeMergeInfo();
+      final svn = _FakeSvn()
+        ..changedPathsByRevision[101] = const [
+          SvnLogChangedPath(
+            path: '/branches/feat/src/a.dart',
+            action: 'M',
+            kind: 'file',
+          ),
+        ];
+      final state = MergeExecutionState(
+        storageService: storage,
+        wcManager: wc,
+        mergeInfoService: mergeInfo,
+        svnService: svn,
+      );
+
+      await state.init();
+      await state.addJob(
+        sourceUrl: 'svn://src/branches/feat',
+        targetWc: '',
+        targetUrl: 'svn://src/branches/target',
+        revisions: const [101],
+        maxRetries: 0,
+        useTemporarySparseWorkingCopy: true,
+      );
+
+      await _waitFor(state, () => state.status == ExecutorStatus.paused);
+
+      final job = state.jobs.first;
+      expect(job.status, JobStatus.paused);
+      expect(job.completedIndex, 0);
+      expect(job.resumeFromStepId, kCommitStepId);
+      expect(job.pauseReason, contains('提交失败'));
+      expect(job.pauseReason, contains('退出码: 1'));
+      expect(wc.commitCalls, 1);
+      expect(mergeInfo.refreshCalls, 0);
+      expect(svn.isRevisionMergedRevisions, isEmpty);
+    });
+
+    test('temporary sparse working copy：commit stderr 有明确失败不能提示成功', () async {
+      final storage = _FakeStorage();
+      final wc = _FakeWcManager()
+        ..commitResultScript = [
+          SvnProcessResult(
+            exitCode: 0,
+            stdout: 'Committed revision 123.',
+            stderr: 'svn: E165001: hook failed',
+            pid: 0,
+          ),
+        ];
+      final mergeInfo = _FakeMergeInfo();
+      final svn = _FakeSvn()
+        ..changedPathsByRevision[101] = const [
+          SvnLogChangedPath(
+            path: '/branches/feat/src/a.dart',
+            action: 'M',
+            kind: 'file',
+          ),
+        ];
+      final state = MergeExecutionState(
+        storageService: storage,
+        wcManager: wc,
+        mergeInfoService: mergeInfo,
+        svnService: svn,
+      );
+
+      await state.init();
+      await state.addJob(
+        sourceUrl: 'svn://src/branches/feat',
+        targetWc: '',
+        targetUrl: 'svn://src/branches/target',
+        revisions: const [101],
+        maxRetries: 0,
+        useTemporarySparseWorkingCopy: true,
+      );
+
+      await _waitFor(state, () => state.status == ExecutorStatus.paused);
+
+      final job = state.jobs.first;
+      expect(job.status, JobStatus.paused);
+      expect(job.completedIndex, 0);
+      expect(job.resumeFromStepId, kCommitStepId);
+      expect(job.pauseReason, contains('提交输出包含明确失败信息'));
+      expect(wc.commitCalls, 1);
+      expect(mergeInfo.refreshCalls, 0);
+      expect(svn.isRevisionMergedRevisions, isEmpty);
+    });
+
+    test('temporary sparse working copy：commit 成功但仓库 mergeinfo 未确认不能成功',
+        () async {
+      final storage = _FakeStorage();
+      final wc = _FakeWcManager();
+      final mergeInfo = _FakeMergeInfo();
+      final svn = _FakeSvn()
+        ..mergedRevisions = <int>{}
+        ..changedPathsByRevision[101] = const [
+          SvnLogChangedPath(
+            path: '/branches/feat/src/a.dart',
+            action: 'M',
+            kind: 'file',
+          ),
+        ];
+      final state = MergeExecutionState(
+        storageService: storage,
+        wcManager: wc,
+        mergeInfoService: mergeInfo,
+        svnService: svn,
+      );
+
+      await state.init();
+      await state.addJob(
+        sourceUrl: 'svn://src/branches/feat',
+        targetWc: '',
+        targetUrl: 'svn://src/branches/target',
+        revisions: const [101],
+        maxRetries: 0,
+        useTemporarySparseWorkingCopy: true,
+      );
+
+      await _waitFor(state, () => state.status == ExecutorStatus.paused);
+
+      final job = state.jobs.first;
+      expect(job.status, JobStatus.paused);
+      expect(job.completedIndex, 0);
+      expect(job.resumeFromStepId, kCommitStepId);
+      expect(job.pauseReason, contains('提交后未在仓库 mergeinfo 中检测到 r101'));
+      expect(wc.commitCalls, 1);
+      expect(svn.isRevisionMergedRevisions, [101]);
+      expect(mergeInfo.refreshCalls, 0);
+    });
+
+    test('temporary sparse working copy：仓库 mergeinfo 确认失败时显示无法确认提交成功',
+        () async {
+      final storage = _FakeStorage();
+      final wc = _FakeWcManager();
+      final mergeInfo = _FakeMergeInfo();
+      final svn = _FakeSvn()
+        ..isRevisionMergedError = StateError('network unavailable')
+        ..changedPathsByRevision[101] = const [
+          SvnLogChangedPath(
+            path: '/branches/feat/src/a.dart',
+            action: 'M',
+            kind: 'file',
+          ),
+        ];
+      final state = MergeExecutionState(
+        storageService: storage,
+        wcManager: wc,
+        mergeInfoService: mergeInfo,
+        svnService: svn,
+      );
+
+      await state.init();
+      await state.addJob(
+        sourceUrl: 'svn://src/branches/feat',
+        targetWc: '',
+        targetUrl: 'svn://src/branches/target',
+        revisions: const [101],
+        maxRetries: 0,
+        useTemporarySparseWorkingCopy: true,
+      );
+
+      await _waitFor(state, () => state.status == ExecutorStatus.paused);
+
+      final job = state.jobs.first;
+      expect(job.status, JobStatus.paused);
+      expect(job.completedIndex, 0);
+      expect(job.resumeFromStepId, kCommitStepId);
+      expect(job.pauseReason, contains('无法确认提交成功'));
+      expect(wc.commitCalls, 1);
+      expect(svn.isRevisionMergedRevisions, [101]);
+      expect(mergeInfo.refreshCalls, 0);
+    });
+
+    test('temporary sparse working copy：commit 成功且仓库 mergeinfo 确认后才成功',
+        () async {
+      final storage = _FakeStorage();
+      final wc = _FakeWcManager();
+      final mergeInfo = _FakeMergeInfo();
+      final svn = _FakeSvn()
+        ..mergedRevisions = <int>{101}
+        ..changedPathsByRevision[101] = const [
+          SvnLogChangedPath(
+            path: '/branches/feat/src/a.dart',
+            action: 'M',
+            kind: 'file',
+          ),
+        ];
+      final state = MergeExecutionState(
+        storageService: storage,
+        wcManager: wc,
+        mergeInfoService: mergeInfo,
+        svnService: svn,
+      );
+
+      await state.init();
+      await state.addJob(
+        sourceUrl: 'svn://src/branches/feat',
+        targetWc: '',
+        targetUrl: 'svn://src/branches/target',
+        revisions: const [101],
+        maxRetries: 0,
+        useTemporarySparseWorkingCopy: true,
+      );
+
+      await _waitFor(state, () => state.status == ExecutorStatus.idle);
+
+      final job = state.jobs.first;
+      expect(job.status, JobStatus.done);
+      expect(job.completedIndex, 1);
+      expect(wc.commitCalls, 1);
+      expect(svn.isRevisionMergedRevisions, [101]);
+      expect(mergeInfo.refreshCalls, 1);
     });
 
     test('temporary sparse working copy：targetUrl 缺失时暂停并要求配置目标 URL', () async {

@@ -18,6 +18,18 @@ import 'package:process_run/shell.dart';
 import 'logger_service.dart';
 import 'svn_xml_parser.dart';
 
+bool _isSvnRepositoryUrl(String value) {
+  final lower = value.toLowerCase();
+  return lower.startsWith('http://') ||
+      lower.startsWith('https://') ||
+      lower.startsWith('svn://') ||
+      lower.startsWith('svn+ssh://') ||
+      lower.startsWith('file://');
+}
+
+String? _mergeinfoWorkingDirectory(String target) =>
+    _isSvnRepositoryUrl(target) ? null : target;
+
 /// ProcessResult 的包装类，用于处理编码问题
 /// 
 /// 这是一个公开的类，供其他模块使用（如 WorkingCopyManager）
@@ -509,7 +521,7 @@ class SvnService {
   }
 
   /// 执行 SVN commit
-  Future<void> commit(
+  Future<SvnProcessResult> commit(
     String targetWc,
     String message, {
     String? username,
@@ -517,7 +529,7 @@ class SvnService {
   }) async {
     _log('提交更改...');
     
-    await _runSvnCommand(
+    final result = await _runSvnCommand(
       ['commit', '-m', message],
       workingDirectory: targetWc,
       username: username,
@@ -525,6 +537,7 @@ class SvnService {
     );
     
     _log('提交成功');
+    return result;
   }
 
   /// 执行 SVN update
@@ -864,7 +877,7 @@ class SvnService {
   /// 使用标准的 SVN mergeinfo 命令检查
   /// [sourceUrl] 源 URL
   /// [revision] 要检查的版本号
-  /// [targetWc] 目标工作副本路径
+  /// [target] 目标工作副本路径或仓库 URL
   /// 
   /// 返回 true 表示已合并，false 表示未合并
   /// 
@@ -872,17 +885,18 @@ class SvnService {
   Future<bool> isRevisionMerged({
     required String sourceUrl,
     required int revision,
-    required String targetWc,
+    required String target,
     String? username,
     String? password,
+    bool throwOnError = false,
   }) async {
     try {
-      _log('检查 revision r$revision 是否已合并到 $targetWc');
+      _log('检查 revision r$revision 是否已合并到 $target');
       // 使用 svn mergeinfo 命令检查（mergeinfo 不支持 --xml，使用文本输出）
       final result = await _runSvnCommand(
-        ['mergeinfo', '--show-revs', 'merged', sourceUrl, targetWc],
+        ['mergeinfo', '--show-revs', 'merged', sourceUrl, target],
         useXml: false,  // mergeinfo 不支持 XML
-        workingDirectory: targetWc,
+        workingDirectory: _mergeinfoWorkingDirectory(target),
         username: username,
         password: password,
       );
@@ -903,6 +917,9 @@ class SvnService {
       _log('✗ revision r$revision 未合并到目标工作副本');
       return false;
     } catch (e, stackTrace) {
+      if (throwOnError) {
+        rethrow;
+      }
       // 如果命令失败（例如工作副本不存在或不是工作副本），返回 false
       _log('⚠ 检查合并状态失败: $e，假设未合并');
       AppLogger.svn.error('检查合并状态异常', e, stackTrace);

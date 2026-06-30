@@ -292,7 +292,7 @@ class WorkingCopyManager {
   /// SVN Commit
   /// 
   /// 提交工作副本的修改
-  Future<void> commit(
+  Future<SvnProcessResult> commit(
     String workingCopy,
     String message, {
     String? username,
