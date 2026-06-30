@@ -140,6 +140,7 @@ MergeJob? buildRemainingJob(
     maxRetries: job.maxRetries,
     revisions: job.remainingRevisions,
     commitMessageTemplate: job.commitMessageTemplate,
+    sourceMessagesByRevision: job.sourceMessagesByRevision,
     commitSupplement: job.commitSupplement,
     mergeValidationScriptPath: job.mergeValidationScriptPath,
     commitMessageOverride: job.commitMessageOverride,
@@ -419,8 +420,12 @@ String resolveResumeStepId(StepSnapshot? failedSnapshot) {
 /// 根据模板生成 commit 信息。
 ///
 /// 模板支持 `{revision}` / `$revision` / `{sourceUrl}` / `$sourceUrl` /
-/// `{targetUrl}` / `$targetUrl`，会按字面替换。模板为 null 或空串时返回默认格式
+/// `{targetUrl}` / `$targetUrl` / `{message}` / `$message`，会按字面替换。
+/// 模板为 null 或空串时返回默认格式
 /// `[Merge] r<rev> from <sourceUrl>`。
+///
+/// 若任务携带源 SVN log 的完整 message，且模板没有显式使用 message 变量，则在基础
+/// message 后追加独立的 `Original SVN message:` 段，避免只提交 title/summary。
 ///
 /// **附加信息（[MergeJob.commitSupplement]）拼接规则**：
 /// - `null` 或 `trim()` 后为空 → 不追加；
@@ -437,7 +442,10 @@ String buildCommitMessage(MergeJob job, int revision) {
   }
 
   final template = job.commitMessageTemplate;
-  final base = template != null && template.isNotEmpty
+  final sourceMessage = job.sourceMessagesByRevision[revision.toString()];
+  final hasMessagePlaceholder = template != null &&
+      (template.contains('{message}') || template.contains(r'$message'));
+  final renderedBase = template != null && template.isNotEmpty
       ? template
           .replaceAll('{revision}', revision.toString())
           .replaceAll(r'$revision', revision.toString())
@@ -445,7 +453,14 @@ String buildCommitMessage(MergeJob job, int revision) {
           .replaceAll(r'$sourceUrl', job.sourceUrl)
           .replaceAll('{targetUrl}', job.targetUrl ?? job.targetWc)
           .replaceAll(r'$targetUrl', job.targetUrl ?? job.targetWc)
+          .replaceAll('{message}', sourceMessage ?? '')
+          .replaceAll(r'$message', sourceMessage ?? '')
       : '[Merge] r$revision from ${job.sourceUrl}';
+
+  final base =
+      sourceMessage == null || sourceMessage.isEmpty || hasMessagePlaceholder
+          ? renderedBase
+          : '$renderedBase\n\nOriginal SVN message:\n$sourceMessage';
 
   final supplement = job.commitSupplement?.trim();
   if (supplement == null || supplement.isEmpty) {
@@ -487,6 +502,39 @@ String describeSkippedFullWorkingCopyValidation(String validationName) {
   return '临时精简工作副本模式下跳过$validationName：该校验依赖完整目标工作副本，'
       '本次成功仍以 SVN 命令结果和仓库 mergeinfo 确认为准';
 }
+
+@visibleForTesting
+bool hasExplicitSvnCommitFailureOutput({
+  required String stdout,
+  required String stderr,
+}) {
+  final errorText = stderr.trim();
+  if (errorText.isEmpty) return false;
+  final lower = errorText.toLowerCase();
+  return lower.contains('svn: e') ||
+      lower.contains('commit failed') ||
+      lower.contains('failed to commit') ||
+      lower.contains('hook failed') ||
+      lower.contains('authorization failed') ||
+      lower.contains('authentication failed') ||
+      lower.contains('no more credentials') ||
+      lower.contains('error:');
+}
+
+@visibleForTesting
+String summarizeSvnProcessStream(String text, {int maxLen = 200}) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return '<empty>';
+  if (trimmed.length <= maxLen) return trimmed;
+  return '${trimmed.substring(0, maxLen)}...';
+}
+
+@visibleForTesting
+bool isRevisionCompletionConfirmed({
+  required bool commitAttempted,
+  required bool mergeInfoConfirmed,
+}) =>
+    commitAttempted && mergeInfoConfirmed;
 
 String _truncateValidationLog(String text, {int maxLen = 200}) {
   if (text.length <= maxLen) return text;
@@ -1147,6 +1195,7 @@ class MergeExecutionState extends ChangeNotifier {
     required List<int> revisions,
     required int maxRetries,
     String? commitMessageTemplate,
+    Map<String, String> sourceMessagesByRevision = const {},
     String? commitSupplement,
     String? mergeValidationScriptPath,
     bool useTemporarySparseWorkingCopy = false,
@@ -1172,6 +1221,7 @@ class MergeExecutionState extends ChangeNotifier {
       maxRetries: maxRetries,
       revisions: revisions,
       commitMessageTemplate: commitMessageTemplate,
+      sourceMessagesByRevision: sourceMessagesByRevision,
       commitSupplement: commitSupplement,
       mergeValidationScriptPath:
           mergeValidationScriptPath?.trim().isEmpty == true
@@ -1992,6 +2042,8 @@ class MergeExecutionState extends ChangeNotifier {
     _setGlobalContext(contextJob);
     bool updateRequired = false;
     bool mergeCompleted = startIndex > findStepIndexById(steps, kMergeStepId);
+    bool commitAttempted = false;
+    bool mergeInfoConfirmed = false;
 
     for (int stepIndex = startIndex; stepIndex < steps.length;) {
       final step = steps[stepIndex];
@@ -2036,13 +2088,29 @@ class MergeExecutionState extends ChangeNotifier {
             stepIndex++;
             break;
           case kCommitStepId:
+            commitAttempted = true;
             final commitResult = await _runCommitStep(job, revision);
             if (commitResult.status == _StepRunStatus.completed) {
+              mergeInfoConfirmed = true;
               _snapshots.set(
                 step.id,
                 _completeSnapshot(snapshot, output: commitResult.output),
               );
-              return _RevisionRunResult.completed;
+              if (isRevisionCompletionConfirmed(
+                commitAttempted: commitAttempted,
+                mergeInfoConfirmed: mergeInfoConfirmed,
+              )) {
+                return _RevisionRunResult.completed;
+              }
+              _snapshots.set(
+                step.id,
+                _failSnapshot(
+                  snapshot,
+                  error: '提交步骤未完成仓库确认，不能标记为成功',
+                  output: commitResult.output,
+                ),
+              );
+              return _RevisionRunResult.paused;
             }
 
             if (commitResult.status == _StepRunStatus.retryFromUpdate) {
@@ -2102,8 +2170,31 @@ class MergeExecutionState extends ChangeNotifier {
       }
     }
 
-    if (mergeCompleted) {
-      return _RevisionRunResult.completed;
+    final error = mergeCompleted
+        ? '合并步骤已完成，但提交步骤未执行或未完成仓库 mergeinfo 确认，不能标记为成功'
+        : 'revision r$revision 未完成';
+    _appendLog('[ERROR] $error');
+    _appendLog(
+      '[ERROR] revision 完成确认: commitAttempted=$commitAttempted, '
+      'mergeInfoConfirmed=$mergeInfoConfirmed',
+    );
+    final commitStepIndex = findStepIndexById(steps, kCommitStepId);
+    if (commitStepIndex != -1) {
+      _currentStepId = kCommitStepId;
+      final snapshot = _snapshots.get(kCommitStepId) ??
+          _startSnapshot(steps[commitStepIndex], job, revision);
+      _snapshots.set(
+        kCommitStepId,
+        _failSnapshot(
+          snapshot,
+          error: error,
+          output: {
+            'revision': revision,
+            'commitAttempted': commitAttempted,
+            'mergeInfoConfirmed': mergeInfoConfirmed,
+          },
+        ),
+      );
     }
     return _RevisionRunResult.paused;
   }
@@ -2337,11 +2428,20 @@ class MergeExecutionState extends ChangeNotifier {
   ) async {
     final targetUrl =
         await _resolveCommitVerificationTargetUrl(job, workingCopy);
-    final merged = await _svnService.isRevisionMerged(
-      sourceUrl: job.sourceUrl,
-      revision: revision,
-      target: targetUrl,
-    );
+    _appendLog('[INFO] 提交后仓库 mergeinfo 确认目标: ${job.sourceUrl} -> $targetUrl');
+    late final bool merged;
+    try {
+      merged = await _svnService.isRevisionMerged(
+        sourceUrl: job.sourceUrl,
+        revision: revision,
+        target: targetUrl,
+        throwOnError: true,
+      );
+    } catch (e) {
+      _appendLog('[ERROR] 提交后仓库 mergeinfo 确认失败: $e');
+      throw StateError('无法确认提交成功：提交后仓库 mergeinfo 确认失败，请检查网络、权限或目标 URL');
+    }
+    _appendLog('[INFO] 提交后仓库 mergeinfo 确认结果: r$revision merged=$merged');
     if (!merged) {
       throw StateError(
         '提交后未在仓库 mergeinfo 中检测到 r$revision，'
@@ -2356,9 +2456,37 @@ class MergeExecutionState extends ChangeNotifier {
     final workingCopy = _effectiveTargetWc(job);
     final message = _buildCommitMessage(job, revision);
     _appendLog('[INFO] 提交信息: $message');
+    _appendLog(
+      '[INFO] 提交模式: '
+      '${job.useTemporarySparseWorkingCopy ? "临时精简工作副本" : "完整工作副本"}',
+    );
+    _appendLog('[INFO] 准备执行 svn commit，工作副本: $workingCopy');
 
     try {
-      await _wcManager.commit(workingCopy, message);
+      final commitResult = await _wcManager.commit(workingCopy, message);
+      _appendLog(
+        '[INFO] svn commit 已执行: exitCode=${commitResult.exitCode}, '
+        'stdout=${summarizeSvnProcessStream(commitResult.stdout)}, '
+        'stderr=${summarizeSvnProcessStream(commitResult.stderr)}',
+      );
+      if (!commitResult.isSuccess) {
+        final detail = commitResult.stderr.trim().isNotEmpty
+            ? commitResult.stderr.trim()
+            : commitResult.stdout.trim();
+        throw StateError(
+          '提交失败 (退出码: ${commitResult.exitCode})'
+          '${detail.isEmpty ? "" : ": ${summarizeSvnProcessStream(detail)}"}',
+        );
+      }
+      if (hasExplicitSvnCommitFailureOutput(
+        stdout: commitResult.stdout,
+        stderr: commitResult.stderr,
+      )) {
+        throw StateError(
+          '提交输出包含明确失败信息: '
+          '${summarizeSvnProcessStream(commitResult.stderr)}',
+        );
+      }
       final verifiedTargetUrl =
           await _verifyCommitRecordedMergeInfo(job, revision, workingCopy);
       _appendLog('[INFO] 提交成功，仓库 mergeinfo 已确认 r$revision');
@@ -2366,6 +2494,9 @@ class MergeExecutionState extends ChangeNotifier {
         output: {
           'message': message,
           'revision': revision,
+          'commitExitCode': commitResult.exitCode,
+          'commitStdout': summarizeSvnProcessStream(commitResult.stdout),
+          'commitStderr': summarizeSvnProcessStream(commitResult.stderr),
           'verifiedTargetUrl': verifiedTargetUrl,
         },
       );
