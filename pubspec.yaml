@@ -1,4 +1,4 @@
-name: SvnMergeTool
+name: svn_auto_merge
 description: SVN 自动合并工具 - Flutter 版本
 publish_to: 'none'
 version: 1.0.0+5
@@ -19,6 +19,10 @@ dependencies:
   # 持久化存储
   shared_preferences: ^2.3.2
   path_provider: ^2.1.4
+
+  # 桌面窗口管理
+  window_manager: ^0.5.1
+  screen_retriever: ^0.2.1
   
   # 进程执行
   process_run: ^1.1.0

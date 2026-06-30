@@ -11,6 +11,7 @@ import 'services/svn_service.dart';
 import 'services/storage_service.dart';
 import 'services/logger_service.dart';
 import 'services/standard_flow_service.dart';
+import 'services/window_state_service.dart';
 import 'services/user_node_loader.dart';
 import 'screens/main_screen_v3.dart';
 import 'pipeline/executors/builtin/builtin_registry.dart';
@@ -58,6 +59,8 @@ void main() async {
     } catch (e, stackTrace) {
       AppLogger.app.error('存储服务初始化失败', e, stackTrace);
     }
+
+    await WindowStateService().initAndRestore();
 
     // 注册内置节点类型
     try {

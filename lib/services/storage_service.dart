@@ -5,11 +5,67 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import '../models/merge_job.dart';
 import 'logger_service.dart';
+
+/// 窗口布局在 SharedPreferences 中的唯一存储 key。
+const String kWindowBoundsKey = 'window_bounds';
+
+/// 检查窗口矩形是否适合持久化。
+bool isStorableWindowBounds(Rect bounds) {
+  return bounds.left.isFinite &&
+      bounds.top.isFinite &&
+      bounds.width.isFinite &&
+      bounds.height.isFinite &&
+      bounds.width > 0 &&
+      bounds.height > 0;
+}
+
+/// 把窗口矩形序列化成扁平 JSON map。
+Map<String, double> windowBoundsToJson(Rect bounds) {
+  if (!isStorableWindowBounds(bounds)) {
+    throw ArgumentError.value(bounds, 'bounds', '窗口矩形无效，无法持久化');
+  }
+  return {
+    'left': bounds.left,
+    'top': bounds.top,
+    'width': bounds.width,
+    'height': bounds.height,
+  };
+}
+
+double? _readFiniteDouble(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is! num) return null;
+  final doubleValue = value.toDouble();
+  return doubleValue.isFinite ? doubleValue : null;
+}
+
+/// 从 JSON 字符串恢复窗口矩形；坏数据返回 null，由调用方决定是否告警。
+Rect? parseWindowBoundsJson(String? jsonContent) {
+  if (jsonContent == null || jsonContent.isEmpty) {
+    return null;
+  }
+
+  try {
+    final json = jsonDecode(jsonContent) as Map<String, dynamic>;
+    final left = _readFiniteDouble(json, 'left');
+    final top = _readFiniteDouble(json, 'top');
+    final width = _readFiniteDouble(json, 'width');
+    final height = _readFiniteDouble(json, 'height');
+    if (left == null || top == null || width == null || height == null) {
+      return null;
+    }
+    final bounds = Rect.fromLTWH(left, top, width, height);
+    return isStorableWindowBounds(bounds) ? bounds : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 class StorageService {
   /// 单例模式
@@ -214,6 +270,26 @@ class StorageService {
   Future<void> savePageSize(int value) async {
     await _ensureInit();
     await _prefs!.setInt('page_size', value);
+  }
+
+  // ===== 窗口布局 =====
+
+  /// 获取上次保存的桌面窗口位置和大小。
+  Future<Rect?> getWindowBounds() async {
+    await _ensureInit();
+    final raw = _prefs!.getString(kWindowBoundsKey);
+    final bounds = parseWindowBoundsJson(raw);
+    if (raw != null && bounds == null) {
+      AppLogger.storage.warn('窗口布局配置无效，已忽略');
+    }
+    return bounds;
+  }
+
+  /// 保存桌面窗口位置和大小。
+  Future<void> saveWindowBounds(Rect bounds) async {
+    await _ensureInit();
+    final json = windowBoundsToJson(bounds);
+    await _prefs!.setString(kWindowBoundsKey, jsonEncode(json));
   }
 
   // ===== 提交者过滤历史 =====
