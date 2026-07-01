@@ -19,10 +19,12 @@ import '../utils/open_directory.dart';
 class SettingsResult {
   final PreloadSettings preloadSettings;
   final int maxRetries;
+  final String? mergeValidationScriptPath;
 
   const SettingsResult({
     required this.preloadSettings,
     required this.maxRetries,
+    this.mergeValidationScriptPath,
   });
 }
 
@@ -73,6 +75,7 @@ DateTime resolveStopDatePickerInitialDate({
 ///   注意这里默认值是 [kDefaultMaxRetries]，**不是** 0——和上面三个字段不一样，单测会显式覆盖这条。
 /// - **stopDate**：`trim` 后若为空则结果为 `null`，否则保留 trim 后的字符串
 ///   （不再做日期格式校验——保留原行为，由调用方负责确保日期串合法）。
+/// - **mergeValidationScriptPath**：空白回落到默认 `Tools/check.py`，路径保存为 `/` 风格相对路径。
 /// - 布尔字段 `preloadEnabled` / `stopOnBranchPoint` 直出，不做转换。
 ///
 /// 不修改入参，返回新对象。
@@ -83,6 +86,7 @@ SettingsResult parseSettingsFormInputs({
   required String stopRevisionText,
   required String stopDateText,
   required String maxRetriesText,
+  required String mergeValidationScriptPathText,
   required bool preloadEnabled,
   required bool stopOnBranchPoint,
 }) {
@@ -92,6 +96,8 @@ SettingsResult parseSettingsFormInputs({
   final trimmedStopDate = stopDateText.trim();
   final stopDate = trimmedStopDate.isEmpty ? null : trimmedStopDate;
   final maxRetries = int.tryParse(maxRetriesText.trim()) ?? kDefaultMaxRetries;
+  final validationScript =
+      normalizeMergeValidationScriptPath(mergeValidationScriptPathText);
 
   return SettingsResult(
     preloadSettings: PreloadSettings(
@@ -103,6 +109,7 @@ SettingsResult parseSettingsFormInputs({
       stopDate: stopDate,
     ),
     maxRetries: maxRetries,
+    mergeValidationScriptPath: validationScript,
   );
 }
 
@@ -127,8 +134,13 @@ bool isSettingsFormDirty({
   required SettingsResult current,
   required PreloadSettings baselinePreload,
   required int baselineMaxRetries,
+  required String? baselineMergeValidationScriptPath,
 }) {
   if (current.maxRetries != baselineMaxRetries) return true;
+  if (normalizeMergeValidationScriptPath(current.mergeValidationScriptPath) !=
+      normalizeMergeValidationScriptPath(baselineMergeValidationScriptPath)) {
+    return true;
+  }
   final p = current.preloadSettings;
   if (p.enabled != baselinePreload.enabled) return true;
   if (p.stopOnBranchPoint != baselinePreload.stopOnBranchPoint) return true;
@@ -146,10 +158,14 @@ class SettingsScreen extends StatefulWidget {
   /// 当前的最大重试次数
   final int currentMaxRetries;
 
+  /// 当前的合并校验脚本路径
+  final String? currentMergeValidationScriptPath;
+
   const SettingsScreen({
     super.key,
     required this.currentPreloadSettings,
     required this.currentMaxRetries,
+    this.currentMergeValidationScriptPath,
   });
 
   @override
@@ -160,12 +176,14 @@ class SettingsScreen extends StatefulWidget {
     BuildContext context, {
     required PreloadSettings currentPreloadSettings,
     required int currentMaxRetries,
+    String? currentMergeValidationScriptPath,
   }) async {
     return Navigator.of(context).push<SettingsResult>(
       MaterialPageRoute(
         builder: (context) => SettingsScreen(
           currentPreloadSettings: currentPreloadSettings,
           currentMaxRetries: currentMaxRetries,
+          currentMergeValidationScriptPath: currentMergeValidationScriptPath,
         ),
       ),
     );
@@ -183,6 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 合并设置
   late int _maxRetries;
+  String? _mergeValidationScriptPath;
 
   // 控制器
   final _maxDaysController = TextEditingController();
@@ -190,6 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _stopRevisionController = TextEditingController();
   final _stopDateController = TextEditingController();
   final _maxRetriesController = TextEditingController();
+  final _mergeValidationScriptPathController = TextEditingController();
 
   @override
   void initState() {
@@ -215,12 +235,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 加载合并设置
     _maxRetries = widget.currentMaxRetries;
     _maxRetriesController.text = _maxRetries.toString();
+    _mergeValidationScriptPath = normalizeMergeValidationScriptPath(
+      widget.currentMergeValidationScriptPath,
+    );
+    _mergeValidationScriptPathController.text = _mergeValidationScriptPath!;
   }
 
   /// **R129 widget lifecycle dispose 维度审计 — 档 3 stateful + owned Disposable
   /// 同框架对照 `main_screen_v3.dart:_MainScreenV3State`**：
   ///
-  /// 5 个 TextEditingController declaration → 5 个 dispose 调用 → super.dispose()
+  /// 6 个 TextEditingController declaration → 6 个 dispose 调用 → super.dispose()
   /// 末位。同 main_screen_v3 共享跨档不变量 I1（super 末位）/ I2（每 controller
   /// 先释放）/ I3（1:1 owned-vs-disposed parity）/ I4（同序释放，无内部顺序约束）。
   /// 详细三档框架说明见 `main_screen_v3.dart:dispose` 处 doc。
@@ -236,6 +260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _stopRevisionController.dispose();
     _stopDateController.dispose();
     _maxRetriesController.dispose();
+    _mergeValidationScriptPathController.dispose();
     super.dispose();
   }
 
@@ -247,11 +272,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       stopRevisionText: _stopRevisionController.text,
       stopDateText: _stopDateController.text,
       maxRetriesText: _maxRetriesController.text,
+      mergeValidationScriptPathText: _mergeValidationScriptPathController.text,
       preloadEnabled: _preloadEnabled,
       stopOnBranchPoint: _stopOnBranchPoint,
     );
     final newPreloadSettings = result.preloadSettings;
     final maxRetries = result.maxRetries;
+    final validationScriptPath = result.mergeValidationScriptPath;
 
     // 保存到持久化存储
     try {
@@ -261,6 +288,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 之前手动列举每个字段，每加一个新字段都要在 settings_screen 和 storage_service 两边改。
       await storageService.savePreloadSettings(newPreloadSettings.toJson());
       await storageService.saveDefaultMaxRetries(maxRetries);
+      await storageService.saveMergeValidationScriptPath(validationScriptPath);
       AppLogger.ui.info('设置已保存');
     } catch (e, stackTrace) {
       // 真 bug 修复：原 catch 仅写日志却仍 pop(result)，UI 显示"保存成功"实际未持久化，
@@ -295,6 +323,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       stopRevisionText: _stopRevisionController.text,
       stopDateText: _stopDateController.text,
       maxRetriesText: _maxRetriesController.text,
+      mergeValidationScriptPathText: _mergeValidationScriptPathController.text,
       preloadEnabled: _preloadEnabled,
       stopOnBranchPoint: _stopOnBranchPoint,
     );
@@ -302,6 +331,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       current: current,
       baselinePreload: widget.currentPreloadSettings,
       baselineMaxRetries: widget.currentMaxRetries,
+      baselineMergeValidationScriptPath:
+          widget.currentMergeValidationScriptPath,
     );
     if (!dirty) {
       if (mounted) {
@@ -433,7 +464,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       leading: const Icon(Icons.account_tree),
                       title: const Text('执行步骤'),
                       subtitle: const Text(
-                        '当前版本固定使用四步执行：准备 -> 更新 -> 合并 -> 提交',
+                        '执行流程：准备 -> 更新 -> 合并 -> 校验 -> 提交',
                       ),
                     ),
                     const Divider(),
@@ -458,6 +489,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             FilteringTextInputFormatter.digitsOnly
                           ],
                         ),
+                      ),
+                    ),
+                    const Divider(),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('合并校验脚本'),
+                      subtitle: const Text(
+                        '相对目标工作副本的 / 风格路径。默认 Tools/check.py；支持 .sh / .bat / .py。',
+                      ),
+                    ),
+                    TextField(
+                      controller: _mergeValidationScriptPathController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        hintText: kDefaultMergeValidationScriptPath,
                       ),
                     ),
                   ],

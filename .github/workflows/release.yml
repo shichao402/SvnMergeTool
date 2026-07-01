@@ -191,8 +191,8 @@ jobs:
                       "macos": {
                           "version": version,
                           "versionNumber": version_number,
-                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
-                          "fileName": f"SvnMergeTool_macos_{version.replace('+', 'build')}.zip",
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnAutoMerge_macos_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnAutoMerge_macos_{version.replace('+', 'build')}.zip",
                           "fileType": "zip",
                           "platform": "macos",
                           "fileHash": os.environ.get('MACOS_HASH', '')
@@ -200,8 +200,8 @@ jobs:
                       "windows": {
                           "version": version,
                           "versionNumber": version_number,
-                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
-                          "fileName": f"SvnMergeTool_windows_{version.replace('+', 'build')}.zip",
+                          "downloadUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version_number}/SvnAutoMerge_windows_{version.replace('+', 'build')}.zip",
+                          "fileName": f"SvnAutoMerge_windows_{version.replace('+', 'build')}.zip",
                           "fileType": "zip",
                           "platform": "windows",
                           "fileHash": os.environ.get('WINDOWS_HASH', '')
@@ -229,12 +229,12 @@ jobs:
           tag_name: v${{ steps.version.outputs.version_number }}
           name: Release v${{ steps.version.outputs.version_number }}
           body: |
-            ## SvnMergeTool v${{ steps.version.outputs.version_number }}
+            ## SVN 合并助手 v${{ steps.version.outputs.version_number }}
             
             ### 下载
             
-            - [macOS](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip)
-            - [Windows](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip)
+            - [macOS](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnAutoMerge_macos_${{ steps.version.outputs.version }}.zip)
+            - [Windows](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version_number }}/SvnAutoMerge_windows_${{ steps.version.outputs.version }}.zip)
             
             ### 更新配置
             

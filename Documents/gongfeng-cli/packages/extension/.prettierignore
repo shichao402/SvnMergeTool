@@ -1,6 +1,0 @@
-tmp
-node_modules
-dist
-coverage
-.ci
-**/__fixtures__/**

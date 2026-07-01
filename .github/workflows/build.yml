@@ -60,10 +60,10 @@ jobs:
       - name: Package macOS
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ZIP_NAME="SvnMergeTool_macos_${VERSION}.zip"
+          ZIP_NAME="SvnAutoMerge_macos_${VERSION}.zip"
           PROJECT_ROOT="${{ github.workspace }}"
           cd build/macos/Build/Products/Release
-          zip -r "${PROJECT_ROOT}/${ZIP_NAME}" SvnMergeTool.app
+          zip -r "${PROJECT_ROOT}/${ZIP_NAME}" SvnAutoMerge.app
           echo "Created: ${ZIP_NAME}"
           echo "ZIP path: ${PROJECT_ROOT}/${ZIP_NAME}"
       
@@ -71,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: SvnMergeTool_macos_${{ steps.version.outputs.version }}.zip
+          path: SvnAutoMerge_macos_${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
   build-windows:
@@ -120,7 +120,7 @@ jobs:
       - name: Package Windows
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $zipName = "SvnMergeTool_windows_$version.zip"
+          $zipName = "SvnAutoMerge_windows_$version.zip"
           $projectRoot = $env:GITHUB_WORKSPACE
           cd build/windows/x64/runner/Release
           Compress-Archive -Path * -DestinationPath "$projectRoot\$zipName" -Force
@@ -131,7 +131,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: SvnMergeTool_windows_${{ steps.version.outputs.version }}.zip
+          path: SvnAutoMerge_windows_${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
   increment-build-number:

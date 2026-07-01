@@ -1,54 +1,34 @@
-# SVN 自动合并工具 (Flutter 版本)
+# SVN 合并助手
 
-一个跨平台的 SVN 自动合并桌面工具，支持自动重试提交、任务队列、插件扩展等功能。
+一个面向桌面场景的 SVN 合并助手，目标是降低日常分支合并的操作量，并把准备、更新、合并、提交放在一个稳定可视的执行界面里。
 
-## 文档
+## 当前定位
 
-详细的文档请查看 [Documents/](Documents/) 目录：
+当前版本已经收敛为固定四步执行方式，只保留服务 SVN 合并的内置能力，不再提供通用流程编排、脚本节点或自定义流程编辑。
 
-- [配置说明](Documents/configuration.md) - 配置文件使用和部署说明
-- [脚本说明](Documents/scripts.md) - 部署和日志收集脚本使用说明
-- [版本管理](Documents/development/version-management.md) - 版本号管理和 CI/CD 说明
+固定步骤为：`准备 -> 更新 -> 合并 -> 提交`
 
-## 快速开始
+提交阶段支持针对 `out-of-date` 的有限重试；执行过程中支持在冲突、失败等需要人工处理的场景下暂停，并支持继续、跳过当前 revision、终止任务，以及查看步骤执行状态和日志。应用异常中断后，未完成任务会恢复为暂停状态，等待人工确认后继续。
 
-### 环境准备（推荐方案）
+## 主要能力
 
-**🥇 方案 1：使用 WSL2（最推荐，最简单）**
+- 浏览并筛选 SVN 日志，选择待合并 revision
+- 使用任务队列串行执行多个合并任务
+- 在执行阶段可视化展示固定四步与当前步骤状态
+- 对 `out-of-date` 提交失败进行按任务配置的重试
+- 在冲突、失败等需要人工处理的场景下暂停并等待处理
+- 使用本地缓存提升日志读取和过滤速度
 
-```bash
-# 在 WSL2 Ubuntu 中
-cd /mnt/d/workspace/GitHub/SvnMergeTool
-flutter pub get
-flutter run -d windows
-```
+## 开发使用
 
-**🥈 方案 2：Windows 原生（简化版）**
+1. 安装 Flutter 桌面开发环境
+2. 运行 `flutter pub get`
+3. 启动应用：`flutter run -d macos`、`flutter run -d windows` 或对应桌面目标
+4. 常规校验：`flutter analyze`、`flutter test`
 
-```powershell
-# 快速开始脚本（自动检测 Flutter）
-.\scripts\quick_start.ps1
+## 配置与文档
 
-# 或手动安装 Flutter
-# 下载: https://docs.flutter.dev/get-started/install/windows
-# 或使用: choco install flutter -y
-```
-
-**🥉 方案 3：GitHub Codespaces（零配置）**
-
-- 在 GitHub 上打开项目
-- 点击 "Code" > "Codespaces" > "Create codespace"
-- 等待环境启动，直接开始开发
-
-> 💡 **详细说明请查看：[Windows 开发最佳实践](Documents/development/windows-dev-best-practices.md)**
-
-### 运行应用
-
-1. 配置 SVN 源 URL：编辑 `config/source_urls.json`
-2. 部署应用：运行 `scripts/deploy.sh`（macOS/Linux）或 `scripts/deploy.bat`（Windows）
-3. 查看日志：运行 `scripts/collect_logs.sh`（macOS/Linux）或 `scripts/collect_logs.bat`（Windows）
-
-更多信息请参考 [文档目录](Documents/README.md)：
-- [配置说明](Documents/configuration.md) - 配置文件使用和部署说明
-- [脚本说明](Documents/scripts.md) - 部署和日志收集脚本使用说明
-- [版本管理](Documents/development/version-management.md) - 版本号管理和 CI/CD 说明
+- [配置说明](Documents/configuration.md)
+- [脚本说明](Documents/scripts.md)
+- [版本管理](Documents/development/version-management.md)
+- [文档目录](Documents/README.md)

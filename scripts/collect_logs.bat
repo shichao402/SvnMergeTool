@@ -1,5 +1,5 @@
 @echo off
-REM SVN 自动合并工具 - 日志收集脚本入口 (Windows)
+REM SVN 合并助手 - 日志收集脚本入口 (Windows)
 REM
 REM 调用跨平台 Python 脚本
 

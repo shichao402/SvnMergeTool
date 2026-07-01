@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SVN Auto Merge Tool - Deploy Script (跨平台 Python 实现)
+SVN 合并助手 - 部署脚本（跨平台 Python 实现）
 
-部署 Flutter 应用到目标平台
+构建并启动 SVN 合并助手桌面应用
 功能：
 - 检查 Flutter 环境
 - 构建应用
-- 安装到设备
 - 启动应用
 
 路径处理规则：
@@ -44,11 +43,11 @@ def get_project_root() -> Path:
 
 
 def kill_existing_processes():
-    """杀掉所有正在运行的 SvnMergeTool 进程"""
+    """杀掉所有正在运行的 SvnAutoMerge 进程"""
     if logger:
-        logger.info("停止现有 SvnMergeTool 进程...")
+        logger.info("停止现有 SvnAutoMerge 进程...")
     else:
-        print("Stopping existing SvnMergeTool processes...")
+        print("正在停止现有 SvnAutoMerge 进程...")
     
     system = platform.system()
     killed_count = 0
@@ -57,7 +56,7 @@ def kill_existing_processes():
         if system == 'Windows':
             # Windows: 使用 taskkill 命令
             result = subprocess.run(
-                ['taskkill', '/F', '/IM', 'SvnMergeTool.exe'],
+                ['taskkill', '/F', '/IM', 'SvnAutoMerge.exe'],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -73,17 +72,18 @@ def kill_existing_processes():
             else:
                 msg = "没有需要停止的进程"
         else:
-            # macOS/Linux: 使用 pkill 命令
+            # macOS/Linux: 精确匹配应用进程名，避免误杀 Cursor 等带有工作区名的进程。
             result = subprocess.run(
-                ['pkill', '-f', 'SvnMergeTool'],
+                ['pgrep', '-x', 'SvnAutoMerge'],
                 capture_output=True,
                 text=True,
                 check=False
             )
-            if result.returncode == 0:
-                msg = "已停止现有进程"
-            else:
-                msg = "没有找到运行中的进程"
+            pids = [pid for pid in result.stdout.splitlines() if pid.strip()]
+            for pid in pids:
+                subprocess.run(['kill', pid], check=False)
+            killed_count = len(pids)
+            msg = f"已停止 {killed_count} 个进程" if killed_count > 0 else "没有找到运行中的进程"
         
         if logger:
             logger.info(msg)
@@ -242,7 +242,7 @@ def check_devices(flutter_cmd: str) -> Tuple[int, bool]:
         if result.returncode == 0:
             device_count = result.stdout.count('"deviceId"')
             if device_count == 0:
-                msg = "未检测到可用设备，将仅构建（桌面应用无需设备）"
+                msg = "未检测到可用设备（桌面平台无需设备，移动平台将仅构建）"
                 if logger:
                     logger.info(msg)
                 else:
@@ -337,53 +337,17 @@ def sync_version(project_root: Path) -> bool:
 
 
 def copy_config_file(project_root: Path, platform_name: str) -> bool:
-    """复制配置文件到构建输出目录
-    
-    注意：macOS 不复制配置文件到 .app 包内，因为这会破坏代码签名。
-    macOS 应用从 assets 读取预置配置，用户配置保存在 Application Support 目录。
-    """
-    # macOS 不需要复制配置文件
-    if platform_name == 'macos':
-        msg = "macOS 使用 assets 预置配置，跳过复制配置文件"
-        if logger:
-            logger.info(msg)
-        else:
-            print(f"[INFO] {msg}")
-        return True
-    
-    config_source = project_root / 'config' / 'source_urls.json'
-    if not config_source.exists():
-        msg = f"配置文件不存在: {config_source}"
-        if logger:
-            logger.warn(msg)
-        else:
-            print(f"[WARNING] {msg}")
-        return False
-    
-    # 根据平台确定目标目录（使用 pathlib）
-    if platform_name == 'windows':
-        config_dir = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'config'
-    else:  # linux
-        config_dir = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle' / 'config'
-    
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        dest_file = config_dir / 'source_urls.json'
-        shutil.copy2(config_source, dest_file)
-        msg = "配置文件已复制到构建输出目录"
-        if logger:
-            logger.info(msg)
-        else:
-            print(f"[OK] {msg}")
-        return True
-    except Exception as e:
-        msg = f"复制配置文件失败: {e}"
-        if logger:
-            logger.warn(msg)
-        else:
-            print(f"[WARNING] {msg}")
-        return False
+    """当前版本不再把运行时配置复制进构建输出目录。
 
+    桌面应用运行时优先读取用户配置目录，缺失时回退到 assets 内置预置配置。
+    仓库中的 config/source_urls.json 只作为模板保留。
+    """
+    msg = "运行时配置使用用户配置目录和 assets 预置配置，跳过复制模板配置文件"
+    if logger:
+        logger.info(msg)
+    else:
+        print(f"[INFO] {msg}")
+    return True
 
 def run_flutter_command(flutter_cmd: str, args: List[str], check: bool = True) -> bool:
     """运行 Flutter 命令"""
@@ -457,7 +421,7 @@ def main():
     total_steps = 7
     current_step = 0
     
-    # 步骤 1: 杀掉所有正在运行的 SvnMergeTool 进程
+    # 步骤 1: 杀掉所有正在运行的 SvnAutoMerge 进程
     current_step += 1
     logger.step(current_step, total_steps, "停止现有进程")
     kill_existing_processes()
@@ -515,35 +479,82 @@ def main():
     
     # 显示构建输出位置
     if platform_name == 'windows':
-        exe_path = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'SvnMergeTool.exe'
+        exe_path = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'SvnAutoMerge.exe'
         logger.info(f"应用位置: {exe_path}")
     elif platform_name == 'macos':
-        app_bundle = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnMergeTool.app'
+        app_bundle = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnAutoMerge.app'
         logger.info(f"应用位置: {app_bundle}")
     else:
         bundle_dir = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle'
         logger.info(f"应用位置: {bundle_dir}")
-    
-    # 步骤 7: 启动应用（如果不是仅构建模式）
+
+    # 步骤 7: 启动应用
+    # 桌面平台（macOS / Windows / Linux）：无需设备，直接启动构建产物。
+    # 移动平台（android / ios）：需要 device 才能 install / run。
     current_step += 1
+    is_desktop = platform_name in ('macos', 'windows', 'linux')
+
+    if is_desktop:
+        logger.step(current_step, total_steps, "启动桌面应用")
+        if platform_name == 'macos':
+            launch_target = project_root / 'build' / 'macos' / 'Build' / 'Products' / 'Debug' / 'SvnAutoMerge.app'
+            if not launch_target.exists():
+                logger.warn(f"未找到应用包: {launch_target}，跳过启动")
+            else:
+                logger.info(f"启动应用: open {launch_target}")
+                try:
+                    subprocess.run(
+                        ['open', str(launch_target)],
+                        check=False,
+                        timeout=10,
+                    )
+                except Exception as e:
+                    logger.warn(f"启动应用失败: {e}")
+        elif platform_name == 'windows':
+            launch_target = project_root / 'build' / 'windows' / 'x64' / 'runner' / 'Debug' / 'SvnAutoMerge.exe'
+            if not launch_target.exists():
+                logger.warn(f"未找到可执行文件: {launch_target}，跳过启动")
+            else:
+                logger.info(f"启动应用: {launch_target}")
+                try:
+                    # Windows: 不阻塞，让 app 在独立进程运行
+                    subprocess.Popen([str(launch_target)], cwd=str(launch_target.parent))
+                except Exception as e:
+                    logger.warn(f"启动应用失败: {e}")
+        else:
+            # linux
+            launch_target = project_root / 'build' / 'linux' / 'x64' / 'debug' / 'bundle' / 'SvnAutoMerge'
+            if not launch_target.exists():
+                logger.warn(f"未找到可执行文件: {launch_target}，跳过启动")
+            else:
+                logger.info(f"启动应用: {launch_target}")
+                try:
+                    subprocess.Popen([str(launch_target)], cwd=str(launch_target.parent))
+                except Exception as e:
+                    logger.warn(f"启动应用失败: {e}")
+        logger.step_done(current_step, total_steps)
+        logger.success("部署完成")
+        sys.exit(0)
+
+    # 移动平台：需要设备
     if build_only:
-        logger.step(current_step, total_steps, "跳过启动（仅构建模式）")
+        logger.step(current_step, total_steps, "跳过启动（无可用设备）")
         logger.step_done(current_step, total_steps)
         logger.success("部署完成（仅构建）")
         sys.exit(0)
-    
+
     logger.step(current_step, total_steps, "启动应用")
-    
+
     # 安装到设备
     logger.info("安装到设备...")
     if not run_flutter_command(flutter_cmd, ['install'], check=False):
         logger.warn("安装失败，但继续执行")
-    
+
     # 启动应用
     logger.info("启动应用...")
     if not run_flutter_command(flutter_cmd, ['run'], check=False):
         logger.warn("应用启动失败")
-    
+
     logger.step_done(current_step, total_steps)
     logger.success("部署完成")
 

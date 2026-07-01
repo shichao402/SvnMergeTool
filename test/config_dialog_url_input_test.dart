@@ -1,4 +1,4 @@
-/// ConfigDialog 源 URL 输入净化契约。
+/// 源 URL 配置输入净化契约。
 ///
 /// 锁两件事：
 /// 1. 顶层 helper [stripUrlWhitespace]：行为契约（empty / 仅空白 / 内嵌空白
@@ -36,15 +36,18 @@ void main() {
     });
 
     test('leading 空白被剥', () {
-      expect(stripUrlWhitespace('   https://repo/branch'), 'https://repo/branch');
+      expect(
+          stripUrlWhitespace('   https://repo/branch'), 'https://repo/branch');
     });
 
     test('trailing 空白被剥', () {
-      expect(stripUrlWhitespace('https://repo/branch   '), 'https://repo/branch');
+      expect(
+          stripUrlWhitespace('https://repo/branch   '), 'https://repo/branch');
     });
 
     test('trailing 换行被剥（粘贴时最常见）', () {
-      expect(stripUrlWhitespace('https://repo/branch\n'), 'https://repo/branch');
+      expect(
+          stripUrlWhitespace('https://repo/branch\n'), 'https://repo/branch');
       expect(
         stripUrlWhitespace('https://repo/branch\r\n'),
         'https://repo/branch',
@@ -230,20 +233,17 @@ void main() {
     });
   });
 
-  group('ConfigDialog 历史记录下拉选择', () {
+  group('源/目标专用配置弹窗', () {
     testWidgets('源 URL 历史菜单可选择，并复用 URL 空白净化规则', (tester) async {
       final sourceController = TextEditingController();
-      final targetController = TextEditingController();
 
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
-          body: ConfigDialog(
+          body: SourceUrlDialog(
             sourceUrlController: sourceController,
-            targetWcController: targetController,
             sourceUrlHistory: const [
               ' https://repo.example.com/svn/branches/feature\n',
             ],
-            targetWcHistory: const [],
             onConfirm: () {},
           ),
         ),
@@ -260,21 +260,19 @@ void main() {
         sourceController.text,
         'https://repo.example.com/svn/branches/feature',
       );
+      expect(find.text('目标工作副本'), findsNothing);
+      expect(find.widgetWithText(ElevatedButton, '选择...'), findsNothing);
 
       sourceController.dispose();
-      targetController.dispose();
     });
 
     testWidgets('目标工作副本历史菜单可选择，并保留路径中的合法空格', (tester) async {
-      final sourceController = TextEditingController();
       final targetController = TextEditingController();
 
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
-          body: ConfigDialog(
-            sourceUrlController: sourceController,
+          body: TargetWorkingCopyDialog(
             targetWcController: targetController,
-            sourceUrlHistory: const [],
             targetWcHistory: const [
               '/Users/name/Working Copies/project branch',
             ],
@@ -292,9 +290,201 @@ void main() {
         targetController.text,
         '/Users/name/Working Copies/project branch',
       );
+      expect(find.text('源 URL'), findsNothing);
+      expect(find.widgetWithText(ElevatedButton, '选择...'), findsOneWidget);
+
+      targetController.dispose();
+    });
+
+    testWidgets('目标 SVN URL 历史菜单可选择，并复用 URL 空白净化规则', (tester) async {
+      final targetUrlController = TextEditingController();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TargetSvnUrlDialog(
+            targetUrlController: targetUrlController,
+            targetUrlHistory: const [
+              ' https://repo.example.com/svn/branches/target\n',
+            ],
+            onConfirm: () {},
+          ),
+        ),
+      ));
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.text(' https://repo.example.com/svn/branches/target\n'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        targetUrlController.text,
+        'https://repo.example.com/svn/branches/target',
+      );
+      expect(find.text('目标工作副本'), findsNothing);
+      expect(find.widgetWithText(ElevatedButton, '选择...'), findsNothing);
+
+      targetUrlController.dispose();
+    });
+
+    testWidgets('源、目标 URL 和目标工作副本弹窗不会混淆输入语义', (tester) async {
+      final sourceController =
+          TextEditingController(text: 'https://repo/source');
+      final targetController = TextEditingController(text: '/Users/name/wc');
+      final targetUrlController =
+          TextEditingController(text: 'https://repo/target');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                SourceUrlDialog(
+                  sourceUrlController: sourceController,
+                  sourceUrlHistory: const ['https://repo/branches/feature'],
+                  onConfirm: () {},
+                ),
+                TargetWorkingCopyDialog(
+                  targetWcController: targetController,
+                  targetWcHistory: const ['/Users/name/target wc'],
+                  onConfirm: () {},
+                ),
+                TargetSvnUrlDialog(
+                  targetUrlController: targetUrlController,
+                  targetUrlHistory: const ['https://repo/branches/target'],
+                  onConfirm: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ));
+
+      expect(find.widgetWithText(SourceUrlDialog, '配置源 URL'), findsOneWidget);
+      expect(find.widgetWithText(TargetWorkingCopyDialog, '配置目标工作副本'),
+          findsOneWidget);
+      expect(
+        find.widgetWithText(TargetSvnUrlDialog, '配置目标 SVN URL'),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(SourceUrlDialog),
+          matching: find.text('目标工作副本'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TargetWorkingCopyDialog),
+          matching: find.text('源 URL'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TargetSvnUrlDialog),
+          matching: find.text('目标工作副本'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TargetWorkingCopyDialog),
+          matching: find.text('目标 SVN URL'),
+        ),
+        findsNothing,
+      );
 
       sourceController.dispose();
       targetController.dispose();
+      targetUrlController.dispose();
+    });
+
+    testWidgets('源和目标历史选择互不修改对方 controller', (tester) async {
+      final sourceController =
+          TextEditingController(text: 'https://repo/source');
+      final targetController = TextEditingController(text: '/Users/name/wc');
+      final targetUrlController =
+          TextEditingController(text: 'https://repo/target');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                SourceUrlDialog(
+                  sourceUrlController: sourceController,
+                  sourceUrlHistory: const ['https://repo/branches/feature'],
+                  onConfirm: () {},
+                ),
+                TargetWorkingCopyDialog(
+                  targetWcController: targetController,
+                  targetWcHistory: const ['/Users/name/target wc'],
+                  onConfirm: () {},
+                ),
+                TargetSvnUrlDialog(
+                  targetUrlController: targetUrlController,
+                  targetUrlHistory: const ['https://repo/branches/target'],
+                  onConfirm: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SourceUrlDialog),
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('https://repo/branches/feature'));
+      await tester.pumpAndSettle();
+
+      expect(sourceController.text, 'https://repo/branches/feature');
+      expect(targetController.text, '/Users/name/wc');
+      expect(targetUrlController.text, 'https://repo/target');
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(TargetWorkingCopyDialog),
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('/Users/name/target wc'));
+      await tester.pumpAndSettle();
+
+      expect(sourceController.text, 'https://repo/branches/feature');
+      expect(targetController.text, '/Users/name/target wc');
+      expect(targetUrlController.text, 'https://repo/target');
+
+      final targetUrlMenu = find.descendant(
+        of: find.byType(TargetSvnUrlDialog),
+        matching: find.byType(PopupMenuButton<String>),
+      );
+      await tester.ensureVisible(targetUrlMenu);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(TargetSvnUrlDialog),
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('https://repo/branches/target'));
+      await tester.pumpAndSettle();
+
+      expect(sourceController.text, 'https://repo/branches/feature');
+      expect(targetController.text, '/Users/name/target wc');
+      expect(targetUrlController.text, 'https://repo/branches/target');
+
+      sourceController.dispose();
+      targetController.dispose();
+      targetUrlController.dispose();
     });
   });
 }

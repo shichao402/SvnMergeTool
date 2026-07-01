@@ -1,5 +1,5 @@
 @echo off
-REM SVN Auto Merge Tool - Deploy Script Entry (Windows)
+REM SVN 合并助手 - 部署脚本入口 (Windows)
 REM 
 REM 入口脚本：仅调用 Python 核心脚本
 

@@ -2,92 +2,93 @@
 
 ## 概述
 
-项目提供了跨平台的部署和日志收集脚本，支持 macOS、Linux 和 Windows。
+项目当前主要保留三类脚本：
+
+- 构建与启动脚本
+- 日志收集脚本
+- 版本管理脚本
+
+它们服务于 SVN 合并助手的日常开发、打包和排障，不再承担通用流程平台相关的扩展职责。
 
 ## 脚本文件
 
-### 部署脚本
+### 构建与启动
 
-- **macOS/Linux**: `scripts/deploy.sh`
-- **Windows**: `scripts/deploy.bat`
+- macOS/Linux: `scripts/deploy.sh`
+- Windows: `scripts/deploy.bat`
 
-**功能：**
+主要用途：
+
 - 检查 Flutter 环境
-- 构建应用
-- 安装到设备（移动平台）
-- 启动应用
-- 自动复制配置文件到构建输出
+- 同步版本号
+- 构建桌面应用
+- 启动对应桌面目标
 
-### 日志收集脚本
+### 日志收集
 
-- **macOS/Linux**: `scripts/collect_logs.sh`
-- **Windows**: `scripts/collect_logs.bat`
+- macOS/Linux: `scripts/collect_logs.sh`
+- Windows: `scripts/collect_logs.bat`
 
-**功能：**
-- 收集应用日志文件
-- 收集配置文件
-- 收集系统信息
-- 生成日志摘要
+主要用途：
+
+- 收集应用日志文件（包含当前 `latest.log` 和归档 `app_*.log`）
+- 收集内置预置配置和用户配置快照
+- 收集系统信息，便于排查问题
+
+### 版本管理
+
+- macOS/Linux: `scripts/version.sh`
+- Windows: `scripts/version.bat`
+
+主要用途：
+
+- 查询或修改版本号
+- 同步版本到 `pubspec.yaml`
+- 为发布构建准备版本信息
 
 ## 使用方法
 
 ### macOS/Linux
 
 ```bash
-# 部署应用
 ./scripts/deploy.sh
-
-# 收集日志
 ./scripts/collect_logs.sh
+./scripts/version.sh get app
 ```
 
 ### Windows
 
-在命令提示符（CMD）中：
-
 ```batch
-REM 部署应用
 scripts\deploy.bat
-
-REM 收集日志
 scripts\collect_logs.bat
+scripts\version.bat get app
 ```
 
-或者在 PowerShell 中：
+PowerShell 下也可直接执行：
 
 ```powershell
-# 部署应用
 .\scripts\deploy.bat
-
-# 收集日志
 .\scripts\collect_logs.bat
+.\scripts\version.bat get app
 ```
 
-## 跨平台支持
+## 配置相关说明
 
-根据项目规则要求，脚本应该考虑跨平台兼容性：
-
-1. **macOS/Linux**: 使用 Bash 脚本（`.sh`）
-2. **Windows**: 使用批处理脚本（`.bat`）
-
-两个平台的脚本功能相同，只是实现方式不同。
+- `assets/config/source_urls.json` 是打包进应用的预置配置
+- 用户真实运行时配置优先读取用户配置目录中的 `source_urls.json`
+- 仓库内的 `config/source_urls.json` 主要作为模板保留
+- 即使构建输出目录中附带了模板配置，运行时也仍以用户配置目录为准
 
 ## 注意事项
 
-1. **Windows 用户**：如果系统已安装 Git Bash 或 WSL，也可以使用 `.sh` 脚本
-2. **macOS/Linux 用户**：只能使用 `.sh` 脚本
-3. **配置文件**：构建脚本会自动复制 `config/source_urls.json` 到构建输出目录
-4. **Windows 桌面应用**：部署脚本会自动检测平台，对于 Windows 桌面应用会跳过设备检测步骤
-
-## 脚本设计原则
-
-根据项目规则（`.cursor/rules/02-scripts.mdc`）：
-
-1. **模块化设计** - 每个脚本负责单一职责
-2. **单点可复用** - 避免重复编写相同逻辑
-3. **通用和跨平台化** - 确保脚本在不同环境下都能正常工作
+1. Windows 用户如果已经安装 Git Bash 或 WSL，也可以直接使用 `.sh` 脚本。
+2. 日志收集脚本会同时抓取预置配置、用户配置以及应用支持目录中的日志，适合问题回溯。
+3. 构建脚本面向桌面目标，默认围绕当前这套 SVN 合并助手桌面程序工作。
+4. 旧的脚本节点示例、GitHub Actions 实验脚本、CR/工蜂调研脚本、临时实验脚本已经从仓库移除。
 
 ## 相关文档
 
-- 配置说明：[configuration.md](configuration.md)
+- [配置说明](configuration.md)
+- [版本管理](development/version-management.md)
 
+当前脚本只围绕现行的应用支持目录和构建产物名工作。

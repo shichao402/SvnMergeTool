@@ -1,5 +1,5 @@
 #!/bin/bash
-# SVN 自动合并工具 - 部署脚本入口 (macOS/Linux)
+# SVN 合并助手 - 部署脚本入口 (macOS/Linux)
 #
 # 入口脚本：仅调用 Python 核心脚本
 

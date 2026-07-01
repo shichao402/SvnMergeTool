@@ -132,6 +132,10 @@ app.*.map.json
 # 临时文档目录（过程性文档）
 Documents/temp/
 
+# 临时脚本目录
+scripts/temp/*
+!scripts/temp/.gitkeep
+
 # GitHub Actions 脚本临时文件
 .github_run_id.txt
 workflow_logs/

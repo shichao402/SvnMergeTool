@@ -2,7 +2,12 @@
 
 ## 概述
 
-应用配置文件 `source_urls.json` 包含预配置的 SVN 源 URL 和应用设置。
+应用配置文件 `source_urls.json` 只负责两类内容：
+
+- 预置的 SVN 源 URL 列表
+- 日志加载相关的基础默认值
+
+合并最大重试次数、预加载停止条件等运行时设置不在这个文件里，它们保存在本地偏好设置中，由应用设置界面维护。
 
 ## 配置结构
 
@@ -19,11 +24,8 @@
     }
   ],
   "settings": {
-    "auto_load_history": true,
-    "max_history_items": 10,
-    "default_max_retries": 5,
-    "auto_load_logs_on_startup": false,
-    "svn_log_limit": 200
+    "svn_log_limit": 200,
+    "log_page_size": 50
   }
 }
 ```
@@ -35,136 +37,64 @@
 预配置的 SVN 源 URL 列表。
 
 - `name`: 显示名称
-- `url`: SVN URL
-- `description`: 描述信息（可选）
-- `enabled`: 是否启用（true/false）
+- `url`: SVN 地址
+- `description`: 描述信息，可选
+- `enabled`: 是否启用
 
 ### settings
 
-应用设置。
+日志加载相关默认值。
 
-- `auto_load_history`: 是否自动加载历史记录
-- `max_history_items`: 最大历史记录数量
-- `default_max_retries`: 默认最大重试次数
-- `auto_load_logs_on_startup`: 启动时是否自动加载日志
-- `svn_log_limit`: SVN 日志获取的默认条数限制（默认 200）
+- `svn_log_limit`: 每次向 SVN 拉取日志时的默认最大条数
+- `log_page_size`: 界面日志列表每页显示条数
 
-## 配置文件加载机制
+## 加载顺序
 
-### 加载顺序
+应用按以下顺序加载配置：
 
-应用按以下顺序尝试加载配置：
+1. 用户配置目录中的 `source_urls.json`
+2. 应用内置的 `assets/config/source_urls.json`
 
-1. **优先从 assets 加载**（打包在应用内）
-   - 路径：`assets/config/source_urls.json`
-   - 特点：只读，打包后无法修改
-   - 用途：提供默认配置
+也就是说，用户配置存在时优先使用用户配置；不存在时回退到打包内置的预置配置。
 
-2. **从外部文件加载**（可修改）
-   - 开发环境：`项目根目录/config/source_urls.json`
-   - 打包环境：`可执行文件所在目录/config/source_urls.json`
-   - 特点：可读写，用户可以修改
-   - 用途：用户自定义配置
+## 运行时目录结构
 
-### 配置目录查找逻辑
+应用运行时根目录由 Flutter 的 `getApplicationSupportDirectory()` 决定。当前代码统一使用以下结构：
 
-#### 开发环境
+- `config/source_urls.json`: 用户可编辑配置
+- `logs/`: 应用日志目录，当前运行写入 `latest.log`，下次启动时归档为 `app_*.log`
+- `queue.json`: 合并任务队列持久化文件
+- `cache/`: SVN 日志缓存与文件列表缓存
+- `mergeinfo_cache/`: mergeinfo 本地缓存
 
-1. 从可执行文件目录向上查找
-2. 找到包含 `pubspec.yaml` 和 `config/` 的目录
-3. 使用该目录下的 `config/` 目录
+当前版本直接使用 `<app-support>` 根目录，不再兼容旧版的嵌套运行时目录。
 
-#### 打包环境
+## 用户配置目录
 
-**macOS:**
-- 优先：`.app/Contents/Resources/config/`
-- 备用：`.app/Contents/MacOS/config/`
+运行时可编辑配置文件位于：
 
-**Windows/Linux:**
-- 可执行文件所在目录的 `config/` 子目录
+- `<app-support>/config/source_urls.json`
 
-## 配置保存
+其中 `<app-support>` 的实际值由平台和打包标识决定。常见情况下通常类似：
 
-应用可以通过 UI 或代码保存配置：
+- macOS: `~/Library/Application Support/com.example.svnautomerge/`
+- Windows: `%APPDATA%/SvnAutoMerge/`
+- Linux: `~/.local/share/SvnAutoMerge/`
 
-```dart
-final configService = ConfigService();
-final config = await configService.getConfig();
-// 修改 config...
-await configService.saveConfig(config);
-```
-
-保存位置：
-- 开发环境：`项目根目录/config/source_urls.json`
-- 打包环境：`可执行文件所在目录/config/source_urls.json`
+仓库中的 `config/source_urls.json` 主要作为模板文件保留，便于开发和整理默认示例，不是当前运行时的优先加载入口。
 
 ## 如何使用
 
-1. 编辑 `source_urls.json` 文件
-2. 添加或修改 `source_urls` 列表中的 URL
-3. 根据需要调整 `settings` 中的设置
-4. 重启应用使配置生效
+1. 首次启动时可直接使用内置预置配置。
+2. 需要自定义源 URL 时，在用户配置目录创建或修改 `source_urls.json`。
+3. 可参考仓库内的 `config/source_urls.json` 作为模板。
+4. 修改完成后重启应用使配置生效。
 
-## 部署相关
+## 发布相关
 
-### 开发环境
+### 内置预置配置
 
-在开发环境中，应用会从项目根目录的 `config/source_urls.json` 加载配置：
-
-```
-项目根目录/
-  ├── config/
-  │   └── source_urls.json  ← 开发环境使用此文件
-  ├── assets/
-  │   └── config/
-  │       └── source_urls.json  ← 默认配置（打包时使用）
-  └── lib/
-```
-
-**加载优先级：**
-1. 优先从 `assets/config/source_urls.json` 加载（打包在应用内）
-2. 如果失败，从 `config/source_urls.json` 加载（开发环境）
-
-### 打包环境
-
-在打包后的应用中，配置文件位置取决于平台：
-
-#### macOS
-```
-应用.app/
-  └── Contents/
-      ├── MacOS/
-      │   └── SvnMergeTool  ← 可执行文件
-      └── Resources/
-          └── config/
-              └── source_urls.json  ← 配置文件位置
-```
-
-#### Windows
-```
-应用目录/
-  ├── SvnMergeTool.exe  ← 可执行文件
-  └── config/
-      └── source_urls.json  ← 配置文件位置
-```
-
-#### Linux
-```
-应用目录/
-  ├── SvnMergeTool  ← 可执行文件
-  └── config/
-      └── source_urls.json  ← 配置文件位置
-```
-
-**加载优先级：**
-1. 优先从 `assets/config/source_urls.json` 加载（打包在应用内）
-2. 如果失败，从可执行文件所在目录的 `config/source_urls.json` 加载
-
-### 配置文件跟随发布
-
-#### 自动打包（assets/config/）
-
-`assets/config/source_urls.json` 会通过 `pubspec.yaml` 自动打包到应用内：
+`assets/config/source_urls.json` 会通过 `pubspec.yaml` 打包进应用：
 
 ```yaml
 flutter:
@@ -172,58 +102,26 @@ flutter:
     - assets/config/source_urls.json
 ```
 
-这个文件会：
-- ✅ 自动包含在应用包中
-- ✅ 只读（打包后无法修改）
-- ✅ 作为默认配置使用
+这个文件的作用是：
 
-#### 手动复制（config/）
+- 作为应用首次启动时的兜底配置
+- 提供一个稳定的默认示例
+- 在用户配置缺失时仍保证应用可用
 
-`config/source_urls.json` 需要手动复制到构建输出目录，以便用户可以修改。
+### 用户配置
 
-**构建脚本会自动执行：**
-
-部署脚本（`scripts/deploy.sh` 或 `scripts/deploy.bat`）会自动复制配置文件到构建输出目录。
-
-### 配置文件修改
-
-#### 开发环境
-
-直接编辑 `config/source_urls.json`，重启应用即可生效。
-
-#### 打包环境
-
-1. 找到应用所在目录
-2. 编辑 `config/source_urls.json`
-3. 重启应用
-
-**注意：** 如果 `config/source_urls.json` 不存在，应用会使用 `assets/config/source_urls.json` 中的默认配置。
-
-### 最佳实践
-
-1. **开发时**：使用 `config/source_urls.json` 进行配置
-2. **打包时**：确保 `assets/config/source_urls.json` 包含合理的默认配置
-3. **发布时**：构建脚本应该复制 `config/source_urls.json` 到构建输出
-4. **用户使用**：用户可以修改打包后的 `config/source_urls.json` 来自定义配置
+真正可编辑、可长期维护的运行时配置位于用户配置目录，不建议把个人使用中的实际 SVN 地址直接写进仓库模板文件。
 
 ## 常见问题
 
-### Q: 修改配置后不生效？
-A: 需要重启应用，配置在启动时加载。
+### Q: 为什么我修改了仓库里的 `config/source_urls.json`，应用里没有生效？
+A: 当前运行时优先读取用户配置目录，不直接读取仓库模板文件。请修改用户配置目录中的 `source_urls.json`。
 
-### Q: 打包后找不到配置文件？
-A: 确保构建脚本已复制 `config/` 目录到构建输出。部署脚本会自动处理。
+### Q: 如何恢复到内置默认配置？
+A: 删除用户配置目录中的 `source_urls.json`，应用会自动回退到 `assets/config/source_urls.json`。
 
-### Q: 如何重置为默认配置？
-A: 删除 `config/source_urls.json`，应用会使用 `assets/config/source_urls.json` 中的默认配置。
+### Q: 旧版本的队列和缓存目录还会继续使用吗？
+A: 不会。当前版本只使用 `getApplicationSupportDirectory()` 根目录下的 `queue.json`、`cache/`、`mergeinfo_cache/`。
 
-### Q: 配置文件会被 Git 提交吗？
-A: 是的，`config/source_urls.json` 会被提交（见 `.gitignore` 注释）。建议使用模板配置，不包含敏感信息。
-
-## 注意事项
-
-- JSON 文件必须符合标准格式，注意逗号和引号
-- URL 必须是有效的 SVN 地址
-- 修改配置文件后需要重启应用
-- 建议备份原配置文件后再修改
-
+### Q: 这个配置文件会被 Git 提交吗？
+A: 仓库里的模板文件会被提交；用户配置目录中的运行时配置不会随仓库提交。

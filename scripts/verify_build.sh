@@ -1,5 +1,5 @@
 #!/bin/bash
-# SVN Auto Merge Tool - Verify Build Script Entry (macOS/Linux)
+# SVN 合并助手 - 构建环境验证脚本入口 (macOS/Linux)
 #
 # 入口脚本：仅调用 Python 核心脚本
 

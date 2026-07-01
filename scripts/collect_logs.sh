@@ -1,5 +1,5 @@
 #!/bin/bash
-# SVN 自动合并工具 - 日志收集脚本入口 (macOS/Linux)
+# SVN 合并助手 - 日志收集脚本入口 (macOS/Linux)
 #
 # 调用跨平台 Python 脚本
 

@@ -8,8 +8,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/log_entry.dart';
-import 'log_filter_service.dart'
-    show appLogSeparator, isUsableWorkingDirectory;
+import 'log_filter_service.dart' show appLogSeparator, isUsableWorkingDirectory;
 import 'svn_service.dart';
 import 'log_cache_service.dart';
 import 'logger_service.dart';
@@ -199,8 +198,8 @@ List<LogEntry> truncateEntriesAtRevision(
 /// 把 [LogSyncService.syncLogs] 步骤 1 的"5 行启动信息"渲染成字符串列表。
 ///
 /// **契约**：
-/// - 5 行顺序固定：sourceUrl / limit / stopOnCopy / workingDirectory / 模式
-/// - `workingDirectory == null` → 显示 `'未指定'`（**不**做 `isEmpty` 判定，
+/// - 5 行顺序固定：sourceUrl / limit / stopOnCopy / targetWorkingDirectory / 模式
+/// - `targetWorkingDirectory == null` → 显示 `'未指定'`（**不**做 `isEmpty` 判定，
 ///   保留原代码 `?? "未指定"` 行为：空字符串视为"已指定但为空"，与 `isUsableWorkingDirectory`
 ///   的"非空 + 非空白"语义解耦——本函数只负责日志格式化，可用性判断由调用方守卫）
 /// - `loadMore` 走中文长描述："加载更多（从最新区间终点继续）" / "刷新最新（从HEAD开始）"
@@ -210,14 +209,14 @@ List<String> formatSyncLogsHeaderLines({
   required String sourceUrl,
   required int limit,
   required bool stopOnCopy,
-  required String? workingDirectory,
+  required String? targetWorkingDirectory,
   required bool loadMore,
 }) {
   return [
     '  源 URL: $sourceUrl',
     '  限制条数: $limit',
     '  stopOnCopy: $stopOnCopy',
-    '  工作目录: ${workingDirectory ?? "未指定"}',
+    '  目标工作副本: ${targetWorkingDirectory ?? "未指定"}',
     '  模式: ${loadMore ? "加载更多（从最新区间终点继续）" : "刷新最新（从HEAD开始）"}',
   ];
 }
@@ -249,38 +248,37 @@ List<String> formatSyncLogsFetchLines({
 class LogSyncService {
   final SvnService _svnService = SvnService();
   final LogCacheService _cacheService = LogCacheService();
-  
+
   // COPY_TAIL 缓存：key = workingDirectory, value = branchPoint revision（分支分界点）
   // 注意：这是非持久化的内存缓存，应用重启后会自动清空
   // 注意：与 LogFilterService 共享缓存，避免重复查询
   static final Map<String, int?> _copyTailCache = {};
 
   /// 从 HEAD 同步最新日志
-  /// 
+  ///
   /// 每次程序启动时调用，确保获取最新数据
-  /// 
+  ///
   /// [sourceUrl] 源 URL
   /// [limit] 每次抓取的条数限制
-  /// [workingDirectory] 工作目录（可选）
-  /// 
+  /// 仅根据 [sourceUrl] 拉取日志；源侧 SVN log 不需要目标工作副本作为 cwd。
+  ///
   /// 返回本次同步的日志条数
   Future<int> syncFromHead({
     required String sourceUrl,
     required int limit,
-    String? workingDirectory,
   }) async {
     try {
       AppLogger.svn.info(appLogSeparator);
       AppLogger.svn.info('【从 HEAD 同步】开始');
       AppLogger.svn.info('  源 URL: $sourceUrl');
       AppLogger.svn.info('  限制条数: $limit');
-      
+
       // 初始化缓存服务
       await _cacheService.init();
-      
+
       // 步骤1：获取当前 HEAD revision
       AppLogger.svn.info('【步骤 1/4】获取 HEAD revision');
-      final headRevision = await _getHeadRevision(sourceUrl, workingDirectory);
+      final headRevision = await _getHeadRevision(sourceUrl);
       if (!isHeadRevisionValid(headRevision)) {
         AppLogger.svn.warn('  无法获取 HEAD revision');
         AppLogger.svn.info(appLogSeparator);
@@ -288,7 +286,7 @@ class LogSyncService {
       }
       final headRevisionValid = headRevision!;
       AppLogger.svn.info('  HEAD revision: r$headRevisionValid');
-      
+
       // 步骤2：获取最新区间信息
       AppLogger.svn.info('【步骤 2/4】检查缓存区间');
       final latestRange = await _cacheService.getLatestRange(sourceUrl);
@@ -325,21 +323,20 @@ class LogSyncService {
       final rawLog = await _svnService.log(
         sourceUrl,
         limit: plan.fetchCount,
-        workingDirectory: workingDirectory,
         startRevision: plan.startRevision,
         reverseOrder: true, // 从 HEAD 向旧版本读取
       );
-      
+
       // 解析 XML 日志
       var entries = SvnXmlParser.parseLog(rawLog);
       AppLogger.svn.info('  获取到 ${entries.length} 条日志');
-      
+
       if (entries.isEmpty) {
         AppLogger.svn.info('  没有新日志');
         AppLogger.svn.info(appLogSeparator);
         return 0;
       }
-      
+
       // 如果有缓存区间，需要截断到缓存头（包含边界值，确保区间连续）
       if (plan.truncateAtRevision != null) {
         final beforeCount = entries.length;
@@ -348,17 +345,17 @@ class LogSyncService {
           AppLogger.svn.info('  截断后剩余 ${entries.length} 条（排除已缓存的）');
         }
       }
-      
+
       if (entries.isEmpty) {
         AppLogger.svn.info('  截断后没有新日志');
         AppLogger.svn.info(appLogSeparator);
         return 0;
       }
-      
+
       // 步骤4：更新缓存
       AppLogger.svn.info('【步骤 4/4】更新缓存');
       await _cacheService.insertEntries(sourceUrl, entries, isFromHead: true);
-      
+
       AppLogger.svn.info('✓ 从 HEAD 同步完成，新增 ${entries.length} 条');
       AppLogger.svn.info(appLogSeparator);
       return entries.length;
@@ -369,13 +366,12 @@ class LogSyncService {
   }
 
   /// 获取 HEAD revision
-  Future<int?> _getHeadRevision(String sourceUrl, String? workingDirectory) async {
+  Future<int?> _getHeadRevision(String sourceUrl) async {
     try {
       // 获取一条最新的日志来确定 HEAD
       final rawLog = await _svnService.log(
         sourceUrl,
         limit: 1,
-        workingDirectory: workingDirectory,
       );
       final entries = SvnXmlParser.parseLog(rawLog);
       if (entries.isNotEmpty) {
@@ -389,21 +385,21 @@ class LogSyncService {
   }
 
   /// 同步日志（支持两种模式）
-  /// 
+  ///
   /// [sourceUrl] 源 URL
   /// [limit] 每次抓取的条数限制（从配置读取，默认500）
   /// [stopOnCopy] 是否在遇到拷贝/分支点时停止
-  /// [workingDirectory] 工作目录（用于 stopOnCopy）
+  /// [targetWorkingDirectory] 目标工作副本（仅用于 stopOnCopy 分支点判断）
   /// [loadMore] 是否加载更多（true=从最新区间终点继续向旧版本读取，false=从HEAD开始刷新）
-  /// 
+  ///
   /// 注意：SVN 鉴权完全依赖 SVN 自身管理，不传递用户名密码
-  /// 
+  ///
   /// 返回本次同步的日志条数
   Future<int> syncLogs({
     required String sourceUrl,
     required int limit,
     bool stopOnCopy = false,
-    String? workingDirectory,
+    String? targetWorkingDirectory,
     bool loadMore = false,
   }) async {
     try {
@@ -413,12 +409,12 @@ class LogSyncService {
         sourceUrl: sourceUrl,
         limit: limit,
         stopOnCopy: stopOnCopy,
-        workingDirectory: workingDirectory,
+        targetWorkingDirectory: targetWorkingDirectory,
         loadMore: loadMore,
       )) {
         AppLogger.svn.info(line);
       }
-      
+
       // 初始化缓存服务
       AppLogger.svn.info('【步骤 2/5】初始化缓存服务');
       await _cacheService.init();
@@ -427,25 +423,25 @@ class LogSyncService {
       // 确定分支点（用于后续过滤）
       AppLogger.svn.info('【步骤 3/5】确定分支点');
       int? branchPoint;
-      
-      if (stopOnCopy && isUsableWorkingDirectory(workingDirectory)) {
+
+      if (stopOnCopy && isUsableWorkingDirectory(targetWorkingDirectory)) {
         AppLogger.svn.info('  stopOnCopy=true，需要查找分支点');
-        AppLogger.svn.info('  工作目录: $workingDirectory');
-        // isUsableWorkingDirectory 已保证 workingDirectory 非 null 且非空
-        branchPoint = await _findBranchPoint(workingDirectory!);
+        AppLogger.svn.info('  目标工作副本: $targetWorkingDirectory');
+        // isUsableWorkingDirectory 已保证 targetWorkingDirectory 非 null 且非空
+        branchPoint = await _findBranchPoint(targetWorkingDirectory!);
         if (branchPoint != null) {
           AppLogger.svn.info('  找到分支点: r$branchPoint');
         } else {
           AppLogger.svn.info('  未找到分支点');
         }
       } else {
-        AppLogger.svn.info('  stopOnCopy=false 或未提供工作目录，不需要查找分支点');
+        AppLogger.svn.info('  stopOnCopy=false 或未提供目标工作副本，不需要查找分支点');
       }
 
       // 获取最新区间信息
       AppLogger.svn.info('【步骤 4/5】查询缓存区间信息');
       final latestRange = await _cacheService.getLatestRange(sourceUrl);
-      
+
       // 确定起始版本
       int? startRevision;
       bool isFromHead = !loadMore;
@@ -480,7 +476,6 @@ class LogSyncService {
         return await syncFromHead(
           sourceUrl: sourceUrl,
           limit: limit,
-          workingDirectory: workingDirectory,
         );
       }
 
@@ -494,20 +489,19 @@ class LogSyncService {
       )) {
         AppLogger.svn.info(line);
       }
-      
+
       final rawLog = await _svnService.log(
         sourceUrl,
         limit: limit,
-        workingDirectory: workingDirectory,
         startRevision: startRevision,
-        reverseOrder: true,  // 向更旧版本读取
+        reverseOrder: true, // 向更旧版本读取
       );
 
       // 解析 XML 日志
       AppLogger.svn.info('  解析 XML 日志...');
       final entries = SvnXmlParser.parseLog(rawLog);
       AppLogger.svn.info('  解析完成，获得 ${entries.length} 条日志');
-      
+
       if (entries.isEmpty) {
         AppLogger.svn.info('  没有新日志需要同步');
         AppLogger.svn.info(appLogSeparator);
@@ -516,7 +510,8 @@ class LogSyncService {
 
       // 更新缓存
       AppLogger.svn.info('  更新缓存...');
-      await _cacheService.insertEntries(sourceUrl, entries, isFromHead: isFromHead);
+      await _cacheService.insertEntries(sourceUrl, entries,
+          isFromHead: isFromHead);
       AppLogger.svn.info('  缓存更新完成');
 
       AppLogger.svn.info('✓ 日志同步完成，新增 ${entries.length} 条');
@@ -531,29 +526,31 @@ class LogSyncService {
   /// 查找分支点（用于 stopOnCopy）
   /// 注意：SVN 鉴权完全依赖 SVN 自身管理
   /// 使用缓存机制避免重复查询
-  /// 
-  /// [workingDirectory] 目标工作目录（分支的工作副本）
+  ///
+  /// [workingDirectory] 目标工作目录或目标 SVN URL
   /// 本质目的：找到分支是从哪个版本创建的，这样我们只需要关注分支被创建之后的版本
   Future<int?> _findBranchPoint(
     String workingDirectory,
   ) async {
     AppLogger.svn.info('  ┌─ 查找分支点 ──────────────────────────────');
     AppLogger.svn.info('  │ 工作目录: $workingDirectory');
-    
-          // 检查缓存（使用 workingDirectory 作为 key）
-          if (_copyTailCache.containsKey(workingDirectory)) {
-            final cached = _copyTailCache[workingDirectory];
-            AppLogger.svn.info('  │ 使用缓存的COPY_TAIL: r$cached');
-            AppLogger.svn.info('  └──────────────────────────────────────────');
-            return cached;
-          }
-    
+
+    // 检查缓存（使用 workingDirectory 作为 key）
+    if (_copyTailCache.containsKey(workingDirectory)) {
+      final cached = _copyTailCache[workingDirectory];
+      AppLogger.svn.info('  │ 使用缓存的COPY_TAIL: r$cached');
+      AppLogger.svn.info('  └──────────────────────────────────────────');
+      return cached;
+    }
+
     try {
       AppLogger.svn.info('  │ 【子步骤 1/3】获取工作目录的 URL（分支 URL）');
       // 获取目标工作目录的 URL（分支的 URL）
-      final branchUrl = await _svnService.getInfo(workingDirectory);
+      final branchUrl = isSvnRepositoryUrl(workingDirectory)
+          ? workingDirectory
+          : await _svnService.getInfo(workingDirectory);
       AppLogger.svn.info('  │   分支 URL: $branchUrl');
-      
+
       AppLogger.svn.info('  │ 【子步骤 2/3】查找分支点');
       AppLogger.svn.info('  │   命令: svn log --stop-on-copy -l 1 -r 1:HEAD');
       AppLogger.svn.info('  │   目的: 找到分支是从哪个版本创建的（分支点）');
@@ -561,57 +558,57 @@ class LogSyncService {
       // 注意：必须使用 SvnService 的统一方法，不能自己组装命令
       final branchPoint = await _svnService.findBranchPoint(
         branchUrl,
-        workingDirectory: workingDirectory,
+        workingDirectory:
+            isSvnRepositoryUrl(workingDirectory) ? null : workingDirectory,
       );
-      
+
       if (branchPoint != null) {
         AppLogger.svn.info('  │   找到分支点: r$branchPoint');
       } else {
         AppLogger.svn.info('  │   未找到分支点');
       }
-      
-            // 缓存结果（包括 null，避免重复查询）
-            _copyTailCache[workingDirectory] = branchPoint;
-            AppLogger.svn.info('  │   已缓存COPY_TAIL');
-            AppLogger.svn.info('  └──────────────────────────────────────────');
-            return branchPoint;
-          } catch (e, stackTrace) {
-            AppLogger.svn.warn('  │ ❌ 查找分支点失败: $e');
-            AppLogger.svn.debug('查找分支点异常详情', stackTrace);
-            // 缓存失败结果，避免重复尝试
-            _copyTailCache[workingDirectory] = null;
-            AppLogger.svn.info('  └──────────────────────────────────────────');
-            return null;
-          }
-        }
 
-        /// 清除COPY_TAIL缓存（用于测试或强制刷新）
-        /// 
-        /// [workingDirectory] 工作目录（如果提供，只清除该目录的缓存；否则清除所有）
-        static void clearCopyTailCache([String? workingDirectory]) {
-          if (isUsableWorkingDirectory(workingDirectory)) {
-            _copyTailCache.remove(workingDirectory);
-            AppLogger.svn.info('已清除COPY_TAIL缓存: $workingDirectory');
-          } else {
-            _copyTailCache.clear();
-            AppLogger.svn.info('已清除所有COPY_TAIL缓存');
-          }
-        }
+      // 缓存结果（包括 null，避免重复查询）
+      _copyTailCache[workingDirectory] = branchPoint;
+      AppLogger.svn.info('  │   已缓存COPY_TAIL');
+      AppLogger.svn.info('  └──────────────────────────────────────────');
+      return branchPoint;
+    } catch (e, stackTrace) {
+      AppLogger.svn.warn('  │ ❌ 查找分支点失败: $e');
+      AppLogger.svn.debug('查找分支点异常详情', stackTrace);
+      // 缓存失败结果，避免重复尝试
+      _copyTailCache[workingDirectory] = null;
+      AppLogger.svn.info('  └──────────────────────────────────────────');
+      return null;
+    }
+  }
 
-        /// 获取缓存的分支点（用于预加载服务检查停止条件）
-        /// 
-        /// [workingDirectory] 工作目录
-        /// 返回缓存的分支点 revision，如果未缓存则返回 null
-        static int? getCopyTailCache(String? workingDirectory) {
-          if (!isUsableWorkingDirectory(workingDirectory)) {
-            return null;
-          }
-          return _copyTailCache[workingDirectory];
-        }
+  /// 清除COPY_TAIL缓存（用于测试或强制刷新）
+  ///
+  /// [workingDirectory] 工作目录（如果提供，只清除该目录的缓存；否则清除所有）
+  static void clearCopyTailCache([String? workingDirectory]) {
+    if (isUsableWorkingDirectory(workingDirectory)) {
+      _copyTailCache.remove(workingDirectory);
+      AppLogger.svn.info('已清除COPY_TAIL缓存: $workingDirectory');
+    } else {
+      _copyTailCache.clear();
+      AppLogger.svn.info('已清除所有COPY_TAIL缓存');
+    }
+  }
+
+  /// 获取缓存的分支点（用于预加载服务检查停止条件）
+  ///
+  /// [workingDirectory] 工作目录
+  /// 返回缓存的分支点 revision，如果未缓存则返回 null
+  static int? getCopyTailCache(String? workingDirectory) {
+    if (!isUsableWorkingDirectory(workingDirectory)) {
+      return null;
+    }
+    return _copyTailCache[workingDirectory];
+  }
 
   /// 清空指定 sourceUrl 的缓存
   Future<void> clearCache(String sourceUrl) async {
     await _cacheService.clearCache(sourceUrl);
   }
 }
-

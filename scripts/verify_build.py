@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SVN Auto Merge Tool - Verify Build Script (跨平台 Python 实现)
+SVN 合并助手 - 构建环境验证脚本（跨平台 Python 实现）
 
 验证 Flutter 构建环境
 检查环境是否准备好进行构建
@@ -65,7 +65,7 @@ def run_command(cmd: list, check: bool = False) -> bool:
 def main():
     """主函数"""
     print("=" * 40)
-    print("  Verifying Build Environment")
+    print("  验证构建环境")
     print("=" * 40)
     print()
     
@@ -73,7 +73,7 @@ def main():
     os.chdir(str(project_root))
     
     # 1. 检查 Flutter
-    print("1. Checking Flutter...")
+    print("1. 检查 Flutter...")
     flutter_cmd = find_command('flutter')
     if flutter_cmd:
         try:
@@ -86,47 +86,47 @@ def main():
             )
             if result.returncode == 0:
                 version_line = result.stdout.split('\n')[0]
-                print(f"✓ Flutter found: {version_line}")
+                print(f"✓ 已检测到 Flutter: {version_line}")
             else:
-                print("✗ Flutter not found")
+                print("✗ 未找到 Flutter")
                 return 1
         except Exception:
-            print("✗ Flutter not found")
+            print("✗ 未找到 Flutter")
             return 1
     else:
-        print("✗ Flutter not found")
+        print("✗ 未找到 Flutter")
         return 1
     
     # 2. 运行 flutter doctor
-    print("\n2. Running flutter doctor...")
+    print("\n2. 运行 flutter doctor...")
     run_command(['flutter', 'doctor'], check=False)
     
     # 3. 检查项目目录
-    print("\n3. Checking project...")
-    print(f"✓ Project directory: {project_root}")
+    print("\n3. 检查项目目录...")
+    print(f"✓ 项目目录: {project_root}")
     
     # 4. 获取依赖
-    print("\n4. Getting dependencies...")
+    print("\n4. 获取依赖...")
     if run_command(['flutter', 'pub', 'get']):
-        print("✓ Dependencies retrieved")
+        print("✓ 依赖获取成功")
     else:
-        print("✗ Failed to get dependencies")
+        print("✗ 获取依赖失败")
         return 1
     
     # 5. 检查构建工具
-    print("\n5. Checking build tools...")
+    print("\n5. 检查构建工具...")
     cmake_cmd = find_command('cmake')
     if cmake_cmd:
-        print("✓ CMake found")
+        print("✓ 已检测到 CMake")
     else:
-        print("⚠ CMake not found (may be needed for Windows build)")
+        print("⚠ 未检测到 CMake（Windows 构建可能需要）")
     
     # 6. 检查设备
-    print("\n6. Checking available devices...")
+    print("\n6. 检查可用设备...")
     run_command(['flutter', 'devices'], check=False)
     
     # 7. 测试构建（dry-run）
-    print("\n7. Testing build (dry-run)...")
+    print("\n7. 测试构建（dry-run）...")
     result = subprocess.run(
         ['flutter', 'build', 'windows', '--debug', '--dry-run'],
         capture_output=True,
@@ -135,19 +135,19 @@ def main():
         check=False
     )
     if 'build windows' in result.stdout or result.returncode == 0:
-        print("✓ Build configuration looks good")
+        print("✓ 构建配置看起来正常")
     else:
-        print("⚠ Build dry-run completed (may have warnings)")
+        print("⚠ dry-run 已完成（可能仍有警告）")
     
     print("\n" + "=" * 40)
-    print("  Environment Verification Complete!")
+    print("  构建环境验证完成！")
     print("=" * 40)
     print()
     
-    print("Next steps:")
-    print("  flutter run -d windows - Run the app")
-    print("  flutter build windows --debug - Build for Windows")
-    print("  ./scripts/deploy.sh - Use deployment script")
+    print("下一步：")
+    print("  flutter run -d windows  # 启动应用")
+    print("  flutter build windows --debug  # 构建 Windows 调试包")
+    print("  ./scripts/deploy.sh  # 使用仓库部署脚本")
     print()
     
     return 0

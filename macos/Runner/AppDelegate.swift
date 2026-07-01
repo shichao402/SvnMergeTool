@@ -4,7 +4,7 @@ import os.log
 
 @main
 class AppDelegate: FlutterAppDelegate {
-  private let logger = OSLog(subsystem: "com.example.SvnMergeTool", category: "AppDelegate")
+  private let logger = OSLog(subsystem: "com.example.svnautomerge", category: "AppDelegate")
   
   override init() {
     // 忽略 SIGPIPE 信号，防止从 Finder 启动时因 stdout 关闭导致崩溃

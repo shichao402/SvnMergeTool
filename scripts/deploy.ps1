@@ -1,4 +1,4 @@
-# SVN Auto Merge Tool - Deploy Script Entry (PowerShell)
+# SVN 合并助手 - 部署脚本入口 (PowerShell)
 # 
 # 入口脚本：仅调用 Python 核心脚本
 

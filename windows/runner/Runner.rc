@@ -32,7 +32,7 @@ END
 
 2 TEXTINCLUDE
 BEGIN
-    "#include ""winres.h""\r\n"
+    "#include \"\"winres.h\"\"\r\n"
     "\0"
 END
 
@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "SvnMergeTool" "\0"
+            VALUE "FileDescription", "SVN 合并助手" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "SvnMergeTool" "\0"
+            VALUE "InternalName", "SvnAutoMerge" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "SvnMergeTool.exe" "\0"
-            VALUE "ProductName", "SvnMergeTool" "\0"
+            VALUE "OriginalFilename", "SvnAutoMerge.exe" "\0"
+            VALUE "ProductName", "SvnAutoMerge" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

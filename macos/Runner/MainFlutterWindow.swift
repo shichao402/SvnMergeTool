@@ -3,7 +3,7 @@ import FlutterMacOS
 import os.log
 
 class MainFlutterWindow: NSWindow {
-  private let logger = OSLog(subsystem: "com.example.SvnMergeTool", category: "MainFlutterWindow")
+  private let logger = OSLog(subsystem: "com.example.svnautomerge", category: "MainFlutterWindow")
   
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -12,7 +12,7 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
     
     // 设置窗口标题
-    self.title = "SVN 自动合并工具"
+    self.title = "SVN 合并助手"
     
     // 设置窗口关闭代理
     self.delegate = self

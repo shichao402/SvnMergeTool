@@ -87,6 +87,7 @@ void main() {
       String stopRevisionText = '',
       String stopDateText = '',
       String maxRetriesText = '',
+      String mergeValidationScriptPathText = '',
       bool preloadEnabled = true,
       bool stopOnBranchPoint = true,
     }) {
@@ -96,6 +97,7 @@ void main() {
         stopRevisionText: stopRevisionText,
         stopDateText: stopDateText,
         maxRetriesText: maxRetriesText,
+        mergeValidationScriptPathText: mergeValidationScriptPathText,
         preloadEnabled: preloadEnabled,
         stopOnBranchPoint: stopOnBranchPoint,
       );
@@ -108,6 +110,10 @@ void main() {
       expect(r.preloadSettings.stopRevision, 0);
       expect(r.preloadSettings.stopDate, isNull);
       expect(r.maxRetries, 5);
+      expect(
+        r.mergeValidationScriptPath,
+        kDefaultMergeValidationScriptPath,
+      );
     });
 
     test('正常数字串 → trim 后 parse', () {
@@ -121,6 +127,18 @@ void main() {
       expect(r.preloadSettings.maxCount, 500);
       expect(r.preloadSettings.stopRevision, 12345);
       expect(r.maxRetries, 10);
+    });
+
+    test('mergeValidationScriptPath 非空 → trim 后保留并转成 / 风格', () {
+      final r = parse(
+        mergeValidationScriptPathText: r'  Tools\check_merge.sh  ',
+      );
+      expect(r.mergeValidationScriptPath, 'Tools/check_merge.sh');
+    });
+
+    test('mergeValidationScriptPath 空白 → 默认脚本路径', () {
+      final r = parse(mergeValidationScriptPathText: '   ');
+      expect(r.mergeValidationScriptPath, kDefaultMergeValidationScriptPath);
     });
 
     test('非法数字串 → 数字字段回落 0，maxRetries 回落 5', () {
@@ -186,6 +204,10 @@ void main() {
       expect(r.preloadSettings.enabled, isTrue);
       expect(r.preloadSettings.stopOnBranchPoint, isFalse);
       expect(r.maxRetries, 3);
+      expect(
+        r.mergeValidationScriptPath,
+        kDefaultMergeValidationScriptPath,
+      );
     });
 
     test('整型负数串 → tryParse 解析成负数（不做夹紧——锁定原行为）', () {
@@ -276,14 +298,10 @@ void main() {
     });
 
     test('OpenDirectoryCommand 值相等性（executable + args 逐项）', () {
-      const a =
-          OpenDirectoryCommand(executable: 'open', args: ['/x']);
-      const b =
-          OpenDirectoryCommand(executable: 'open', args: ['/x']);
-      const c =
-          OpenDirectoryCommand(executable: 'open', args: ['/y']);
-      const d =
-          OpenDirectoryCommand(executable: 'explorer', args: ['/x']);
+      const a = OpenDirectoryCommand(executable: 'open', args: ['/x']);
+      const b = OpenDirectoryCommand(executable: 'open', args: ['/x']);
+      const c = OpenDirectoryCommand(executable: 'open', args: ['/y']);
+      const d = OpenDirectoryCommand(executable: 'explorer', args: ['/x']);
       const e = OpenDirectoryCommand(
         executable: 'open',
         args: ['/x', '/y'],
@@ -300,11 +318,9 @@ void main() {
       const a = OpenDirectoryCommand(executable: 'open', args: ['/x']);
       const c = OpenDirectoryCommand(executable: 'open', args: ['/y']);
       const d = OpenDirectoryCommand(executable: 'explorer', args: ['/x']);
-      const e =
-          OpenDirectoryCommand(executable: 'open', args: ['/x', '/y']);
+      const e = OpenDirectoryCommand(executable: 'open', args: ['/x', '/y']);
       final s = <OpenDirectoryCommand>{a, c, d, e};
-      expect(s.length, 4,
-          reason: 'executable / args 内容 / args 长度 各维度都参与 ==');
+      expect(s.length, 4, reason: 'executable / args 内容 / args 长度 各维度都参与 ==');
     });
 
     test('OpenDirectoryCommand args List 同内容不同实例视为相等（R103 实测契约 doc 化）', () {
@@ -389,7 +405,8 @@ void main() {
     test('Windows 上 file 与 directory 解析结果不同（cmd vs explorer）', () {
       // 锁定 Windows 分支差异：文件用 cmd /c start，目录用 explorer
       final file = resolveOpenFileCommand(platform: 'windows', path: r'C:\x');
-      final dir = resolveOpenDirectoryCommand(platform: 'windows', path: r'C:\x');
+      final dir =
+          resolveOpenDirectoryCommand(platform: 'windows', path: r'C:\x');
       expect(file!.executable, 'cmd');
       expect(dir!.executable, 'explorer');
       expect(file, isNot(equals(dir)));
@@ -406,7 +423,8 @@ void main() {
       expect(kDefaultMaxRetries, 5);
     });
 
-    test('parseSettingsFormInputs 在 maxRetries 解析失败时回退到 kDefaultMaxRetries', () {
+    test('parseSettingsFormInputs 在 maxRetries 解析失败时回退到 kDefaultMaxRetries',
+        () {
       // 锁定"兜底来源"——禁止有人把这里的 ?? 默认值改成另一个数字而不同步常量
       final result = parseSettingsFormInputs(
         maxDaysText: '0',
@@ -414,13 +432,15 @@ void main() {
         stopRevisionText: '0',
         stopDateText: '',
         maxRetriesText: 'not-a-number',
+        mergeValidationScriptPathText: '',
         preloadEnabled: false,
         stopOnBranchPoint: false,
       );
       expect(result.maxRetries, kDefaultMaxRetries);
     });
 
-    test('parseSettingsFormInputs 在 maxRetries 为空字符串时回退到 kDefaultMaxRetries', () {
+    test('parseSettingsFormInputs 在 maxRetries 为空字符串时回退到 kDefaultMaxRetries',
+        () {
       // 空字符串走和"无法 parse"同一兜底分支
       final result = parseSettingsFormInputs(
         maxDaysText: '',
@@ -428,6 +448,7 @@ void main() {
         stopRevisionText: '',
         stopDateText: '',
         maxRetriesText: '',
+        mergeValidationScriptPathText: '',
         preloadEnabled: true,
         stopOnBranchPoint: true,
       );
@@ -443,6 +464,7 @@ void main() {
         stopRevisionText: '0',
         stopDateText: '',
         maxRetriesText: '7',
+        mergeValidationScriptPathText: '',
         preloadEnabled: false,
         stopOnBranchPoint: false,
       );
@@ -506,8 +528,7 @@ void main() {
     // _save 的 try/catch 原本只写日志却仍 pop(result)，UI 显示"保存成功"
     // 实际未持久化，下次启动配置丢失。现改为：catch 分支弹 SnackBar 显示
     // 具体错误 + 提前 return（不 pop），让用户感知失败可重试或手动取消。
-    final src =
-        File('lib/screens/settings_screen.dart').readAsStringSync();
+    final src = File('lib/screens/settings_screen.dart').readAsStringSync();
 
     test('catch 分支弹 SnackBar 显示具体错误', () {
       expect(
@@ -534,9 +555,8 @@ void main() {
       final saveBody = src.substring(saveStart, pickDateStart);
 
       // _save 内 Navigator.of(context).pop(result) 仅出现一次（成功路径）
-      final popMatches = 'Navigator.of(context).pop(result)'
-          .allMatches(saveBody)
-          .length;
+      final popMatches =
+          'Navigator.of(context).pop(result)'.allMatches(saveBody).length;
       // 注意 String.allMatches 不支持，改 RegExp
       final popCount = RegExp(r'Navigator\.of\(context\)\.pop\(result\)')
           .allMatches(saveBody)
@@ -573,6 +593,7 @@ void main() {
       stopDate: null,
     );
     const baselineMaxRetries = 3;
+    const baselineMergeValidationScriptPath = 'Tools/check.sh';
 
     SettingsResult mk({
       bool enabled = true,
@@ -582,6 +603,7 @@ void main() {
       int stopRevision = 0,
       String? stopDate,
       int maxRetries = 3,
+      String? mergeValidationScriptPath = baselineMergeValidationScriptPath,
     }) =>
         SettingsResult(
           preloadSettings: PreloadSettings(
@@ -593,6 +615,7 @@ void main() {
             stopDate: stopDate,
           ),
           maxRetries: maxRetries,
+          mergeValidationScriptPath: mergeValidationScriptPath,
         );
 
     test('全字段同基线 → false', () {
@@ -601,6 +624,7 @@ void main() {
           current: mk(),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isFalse,
       );
@@ -612,6 +636,7 @@ void main() {
           current: mk(enabled: false),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -623,6 +648,7 @@ void main() {
           current: mk(stopOnBranchPoint: false),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -634,6 +660,7 @@ void main() {
           current: mk(maxDays: 30),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -645,6 +672,7 @@ void main() {
           current: mk(maxCount: 500),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -656,6 +684,7 @@ void main() {
           current: mk(stopRevision: 12345),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -667,6 +696,7 @@ void main() {
           current: mk(stopDate: '2026-01-01'),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -678,6 +708,19 @@ void main() {
           current: mk(maxRetries: 5),
           baselinePreload: baselinePreload,
           baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
+        ),
+        isTrue,
+      );
+    });
+
+    test('mergeValidationScriptPath 改了 → true', () {
+      expect(
+        isSettingsFormDirty(
+          current: mk(mergeValidationScriptPath: 'Tools/other.sh'),
+          baselinePreload: baselinePreload,
+          baselineMaxRetries: baselineMaxRetries,
+          baselineMergeValidationScriptPath: baselineMergeValidationScriptPath,
         ),
         isTrue,
       );
@@ -688,8 +731,7 @@ void main() {
     // 用户场景：用户在设置页改了若干字段后误点 AppBar 左上 X，
     // 原 onPressed 直连 `Navigator.of(context).pop()` 静默丢弃所有未保存输入。
     // 现改为：调 _onClosePressed → dirty 时弹"丢弃未保存的修改？"确认 dialog。
-    final src =
-        File('lib/screens/settings_screen.dart').readAsStringSync();
+    final src = File('lib/screens/settings_screen.dart').readAsStringSync();
 
     test('AppBar leading IconButton 接到 _onClosePressed 而非直连 pop', () {
       expect(
@@ -698,7 +740,8 @@ void main() {
         reason: 'X 按钮必须接 _onClosePressed 才能做 dirty 检测',
       );
       expect(
-        src.contains('onPressed: () => Navigator.of(context).pop(),\n          tooltip: \'取消\','),
+        src.contains(
+            'onPressed: () => Navigator.of(context).pop(),\n          tooltip: \'取消\','),
         isFalse,
         reason: 'X 按钮不得再直连 Navigator.pop()（静默丢弃 bug）',
       );
@@ -754,8 +797,7 @@ void main() {
   });
 
   group('设置页保存按钮对比度契约（doc-as-test）', () {
-    final src =
-        File('lib/screens/settings_screen.dart').readAsStringSync();
+    final src = File('lib/screens/settings_screen.dart').readAsStringSync();
 
     test('build 内先取得 ColorScheme，按钮颜色走主题高对比色对', () {
       expect(

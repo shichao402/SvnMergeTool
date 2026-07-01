@@ -1,6 +1,6 @@
 /// 配置对话框
 ///
-/// 用于编辑源 URL 和目标工作副本
+/// 用于编辑源 URL、目标工作副本和目标 SVN URL。
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +22,6 @@ import 'package:file_picker/file_picker.dart';
 /// 用 `RegExp(r'\s+')` 一次性替换为空串而不是 `trim()`：trim 只清头尾，
 /// 内部空白（如 `https://repo /branch`）也要清，否则 `Uri.parse` 会成功
 /// 但 svn info 仍然报 404，用户排查更难。
-@visibleForTesting
 String stripUrlWhitespace(String input) {
   if (input.isEmpty) return input;
   return input.replaceAll(RegExp(r'\s+'), '');
@@ -42,7 +41,6 @@ String stripUrlWhitespace(String input) {
 /// 光标策略：净化后字符串长度可能缩短，旧 selection.baseOffset 若超出新长度则
 /// clamp 到末尾；否则保留原 baseOffset（粘贴 trailing `\n` 时光标本来就在末尾，
 /// clamp 后体验自然）。
-@visibleForTesting
 class UrlInputFormatter extends TextInputFormatter {
   const UrlInputFormatter();
 
@@ -64,67 +62,199 @@ class UrlInputFormatter extends TextInputFormatter {
   }
 }
 
-/// 配置对话框
+/// 源 URL 配置对话框。
 ///
-/// **R133 controller 借用者（borrower）—— 流向拓扑契约**：本类是
-/// `_MainScreenV3State` 拥有的 `_sourceUrlController` / `_targetWcController`
-/// 的 **borrower**：通过构造参数接收引用、可执行 `.text=`（写站点 3 处：
-/// `_pickTargetWc:61` 档 3 / `onSelected:84` 档 1 / `onSelected:110` 档 1）
-/// + 绑定到 `TextField.controller:`（读站点）；**故意不调用 .dispose()**
-/// —— J2 borrower 无 dispose 责任律，否则 dialog dismiss 后 owner 再写
-/// disposed controller 会抛 `FlutterError: A TextEditingController was used
-/// after being disposed`。
-///
-/// borrower 子类型 = StatelessWidget → 档 3 写必用 `context.mounted` 守护
-/// （J3 子类型分流，与 R132 I3 同律）；本类 `_pickTargetWc:59` 已遵此契约。
-class ConfigDialog extends StatelessWidget {
+/// 源只需要仓库 URL，不需要工作目录。不要在这个弹窗里加入工作副本选择器，否则会让
+/// 用户误以为源侧也需要本地 checkout。
+class SourceUrlDialog extends StatelessWidget {
   final TextEditingController sourceUrlController;
-  final TextEditingController targetWcController;
   final List<String> sourceUrlHistory;
+  final VoidCallback onConfirm;
+
+  const SourceUrlDialog({
+    super.key,
+    required this.sourceUrlController,
+    required this.sourceUrlHistory,
+    required this.onConfirm,
+  });
+
+  static Future<bool?> show({
+    required BuildContext context,
+    required TextEditingController sourceUrlController,
+    required List<String> sourceUrlHistory,
+    required VoidCallback onConfirm,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => SourceUrlDialog(
+        sourceUrlController: sourceUrlController,
+        sourceUrlHistory: sourceUrlHistory,
+        onConfirm: onConfirm,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('配置源 URL'),
+      content: SizedBox(
+        width: 500,
+        child: TextField(
+          controller: sourceUrlController,
+          inputFormatters: const [UrlInputFormatter()],
+          decoration: InputDecoration(
+            labelText: '源 URL',
+            helperText: '粘贴时自动剥离空白字符',
+            border: const OutlineInputBorder(),
+            suffixIcon: sourceUrlHistory.isNotEmpty
+                ? PopupMenuButton<String>(
+                    icon: const Icon(Icons.arrow_drop_down),
+                    onSelected: (value) {
+                      sourceUrlController.text = stripUrlWhitespace(value);
+                    },
+                    itemBuilder: (context) => sourceUrlHistory
+                        .map((url) => PopupMenuItem(
+                              value: url,
+                              child: Text(url,
+                                  style: const TextStyle(fontSize: 12)),
+                            ))
+                        .toList(),
+                  )
+                : null,
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop(true);
+            onConfirm();
+          },
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 目标 SVN URL 配置对话框。
+///
+/// 用于临时精简工作副本模式：目标工作副本会在系统临时目录自动创建，因此这里仅配置
+/// checkout 的目标分支 URL，不要求用户准备完整本地工作副本。
+class TargetSvnUrlDialog extends StatelessWidget {
+  final TextEditingController targetUrlController;
+  final List<String> targetUrlHistory;
+  final VoidCallback onConfirm;
+
+  const TargetSvnUrlDialog({
+    super.key,
+    required this.targetUrlController,
+    required this.targetUrlHistory,
+    required this.onConfirm,
+  });
+
+  static Future<bool?> show({
+    required BuildContext context,
+    required TextEditingController targetUrlController,
+    required List<String> targetUrlHistory,
+    required VoidCallback onConfirm,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => TargetSvnUrlDialog(
+        targetUrlController: targetUrlController,
+        targetUrlHistory: targetUrlHistory,
+        onConfirm: onConfirm,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('配置目标 SVN URL'),
+      content: SizedBox(
+        width: 500,
+        child: TextField(
+          controller: targetUrlController,
+          inputFormatters: const [UrlInputFormatter()],
+          decoration: InputDecoration(
+            labelText: '目标 SVN URL',
+            helperText: '精简模式会在系统临时目录自动创建临时工作副本',
+            border: const OutlineInputBorder(),
+            suffixIcon: targetUrlHistory.isNotEmpty
+                ? PopupMenuButton<String>(
+                    icon: const Icon(Icons.arrow_drop_down),
+                    onSelected: (value) {
+                      targetUrlController.text = stripUrlWhitespace(value);
+                    },
+                    itemBuilder: (context) => targetUrlHistory
+                        .map((url) => PopupMenuItem(
+                              value: url,
+                              child: Text(url,
+                                  style: const TextStyle(fontSize: 12)),
+                            ))
+                        .toList(),
+                  )
+                : null,
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop(true);
+            onConfirm();
+          },
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 目标工作副本配置对话框。
+///
+/// 目标只选择本地工作副本目录。目标 URL 由 `svn info` 从工作副本元数据获取，不能在
+/// UI 中单独填写，避免 URL 与工作目录不一致。
+class TargetWorkingCopyDialog extends StatelessWidget {
+  final TextEditingController targetWcController;
   final List<String> targetWcHistory;
   final VoidCallback onConfirm;
 
-  const ConfigDialog({
+  const TargetWorkingCopyDialog({
     super.key,
-    required this.sourceUrlController,
     required this.targetWcController,
-    required this.sourceUrlHistory,
     required this.targetWcHistory,
     required this.onConfirm,
   });
 
-  /// 显示配置对话框
   static Future<bool?> show({
     required BuildContext context,
-    required TextEditingController sourceUrlController,
     required TextEditingController targetWcController,
-    required List<String> sourceUrlHistory,
     required List<String> targetWcHistory,
     required VoidCallback onConfirm,
   }) {
     return showDialog<bool>(
       context: context,
-      builder: (context) => ConfigDialog(
-        sourceUrlController: sourceUrlController,
+      builder: (context) => TargetWorkingCopyDialog(
         targetWcController: targetWcController,
-        sourceUrlHistory: sourceUrlHistory,
         targetWcHistory: targetWcHistory,
         onConfirm: onConfirm,
       ),
     );
   }
 
-  /// **R132 TextEditingController.text 写时机审计 — 档 3 async-bracket
-  /// (跨 await 边界) + StatelessWidget 子型**：本类是 StatelessWidget 不持
-  /// 有 owned controller（由 _MainScreenV3State 注入），await 期间父
-  /// State 可能被 dispose（用户在 picker dialog 期间关闭整个应用），写 disposed
-  /// `targetWcController.text` 会抛 FlutterError。无 `mounted` 字段可用——
-  /// 用 `context.mounted` 替代（Flutter 3.7+ 等价契约）。
-  ///
-  /// 与同 lib R131 修复的 `_syncLatestLogs:1071` / `settings_screen._pickDate`
-  /// + R132 修复的 `main_screen_v3:_loadAuthorFilterHistory` 共享同模板——
-  /// await 后 .text= 之前必须自检（StatefulWidget 用 `mounted` /
-  /// StatelessWidget 用 `context.mounted`）。
+  /// await 后写 borrowed controller 前必须检查 `context.mounted`。
   Future<void> _pickTargetWc(BuildContext context) async {
     final result = await FilePicker.platform.getDirectoryPath();
     if (!context.mounted) return;
@@ -136,69 +266,40 @@ class ConfigDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('配置'),
+      title: const Text('配置目标工作副本'),
       content: SizedBox(
         width: 500,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
-            // 源 URL
-            TextField(
-              controller: sourceUrlController,
-              inputFormatters: const [UrlInputFormatter()],
-              decoration: InputDecoration(
-                labelText: '源 URL',
-                helperText: '粘贴时自动剥离空白字符',
-                border: const OutlineInputBorder(),
-                suffixIcon: sourceUrlHistory.isNotEmpty
-                    ? PopupMenuButton<String>(
-                        icon: const Icon(Icons.arrow_drop_down),
-                        onSelected: (value) {
-                          sourceUrlController.text = stripUrlWhitespace(value);
-                        },
-                        itemBuilder: (context) => sourceUrlHistory
-                            .map((url) => PopupMenuItem(
-                                  value: url,
-                                  child: Text(url, style: const TextStyle(fontSize: 12)),
-                                ))
-                            .toList(),
-                      )
-                    : null,
+            Expanded(
+              child: TextField(
+                controller: targetWcController,
+                decoration: InputDecoration(
+                  labelText: '目标工作副本',
+                  helperText: '目标 URL 将从该工作副本自动读取',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: targetWcHistory.isNotEmpty
+                      ? PopupMenuButton<String>(
+                          icon: const Icon(Icons.arrow_drop_down),
+                          onSelected: (value) {
+                            targetWcController.text = value;
+                          },
+                          itemBuilder: (context) => targetWcHistory
+                              .map((wc) => PopupMenuItem(
+                                    value: wc,
+                                    child: Text(wc,
+                                        style: const TextStyle(fontSize: 12)),
+                                  ))
+                              .toList(),
+                        )
+                      : null,
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-            // 目标工作副本
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: targetWcController,
-                    decoration: InputDecoration(
-                      labelText: '目标工作副本',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: targetWcHistory.isNotEmpty
-                          ? PopupMenuButton<String>(
-                              icon: const Icon(Icons.arrow_drop_down),
-                              onSelected: (value) {
-                                targetWcController.text = value;
-                              },
-                              itemBuilder: (context) => targetWcHistory
-                                  .map((wc) => PopupMenuItem(
-                                        value: wc,
-                                        child: Text(wc, style: const TextStyle(fontSize: 12)),
-                                      ))
-                                  .toList(),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () => _pickTargetWc(context),
-                  child: const Text('选择...'),
-                ),
-              ],
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () => _pickTargetWc(context),
+              child: const Text('选择...'),
             ),
           ],
         ),

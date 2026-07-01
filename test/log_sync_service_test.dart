@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:svn_auto_merge/models/log_entry.dart';
 import 'package:svn_auto_merge/services/log_sync_service.dart';
@@ -221,14 +223,14 @@ void main() {
         sourceUrl: 'svn://repo/trunk',
         limit: 50,
         stopOnCopy: true,
-        workingDirectory: '/tmp/wc',
+        targetWorkingDirectory: '/tmp/wc',
         loadMore: false,
       );
       expect(lines, [
         '  源 URL: svn://repo/trunk',
         '  限制条数: 50',
         '  stopOnCopy: true',
-        '  工作目录: /tmp/wc',
+        '  目标工作副本: /tmp/wc',
         '  模式: 刷新最新（从HEAD开始）',
       ]);
     });
@@ -238,33 +240,33 @@ void main() {
         sourceUrl: 'u',
         limit: 1,
         stopOnCopy: false,
-        workingDirectory: 'wc',
+        targetWorkingDirectory: 'wc',
         loadMore: true,
       );
       expect(lines.last, '  模式: 加载更多（从最新区间终点继续）');
     });
 
-    test('workingDirectory=null → 显示"未指定"', () {
+    test('targetWorkingDirectory=null → 显示"未指定"', () {
       final lines = formatSyncLogsHeaderLines(
         sourceUrl: 'u',
         limit: 1,
         stopOnCopy: false,
-        workingDirectory: null,
+        targetWorkingDirectory: null,
         loadMore: false,
       );
-      expect(lines[3], '  工作目录: 未指定');
+      expect(lines[3], '  目标工作副本: 未指定');
     });
 
-    test('workingDirectory="" → 保留空字符串（不走 ?? 分支）', () {
+    test('targetWorkingDirectory="" → 保留空字符串（不走 ?? 分支）', () {
       // 契约：?? 仅对 null 兜底；空串说明调用方已显式传入"已指定但为空"
       final lines = formatSyncLogsHeaderLines(
         sourceUrl: 'u',
         limit: 1,
         stopOnCopy: false,
-        workingDirectory: '',
+        targetWorkingDirectory: '',
         loadMore: false,
       );
-      expect(lines[3], '  工作目录: ');
+      expect(lines[3], '  目标工作副本: ');
     });
 
     test('总是返回 5 行', () {
@@ -273,7 +275,7 @@ void main() {
           sourceUrl: 'u',
           limit: 1,
           stopOnCopy: false,
-          workingDirectory: null,
+          targetWorkingDirectory: null,
           loadMore: false,
         ).length,
         5,
@@ -285,12 +287,46 @@ void main() {
         sourceUrl: 'u',
         limit: 1,
         stopOnCopy: false,
-        workingDirectory: 'w',
+        targetWorkingDirectory: 'w',
         loadMore: false,
       );
       for (final line in lines) {
         expect(line.startsWith('  '), isTrue, reason: line);
       }
+    });
+  });
+
+  group('源日志同步与目标工作副本解耦', () {
+    final source = File('lib/services/log_sync_service.dart').readAsStringSync();
+
+    test('syncFromHead 不接受工作目录参数', () {
+      final start = source.indexOf('Future<int> syncFromHead({');
+      final end = source.indexOf('}) async {', start);
+      final signature = source.substring(start, end);
+
+      expect(signature.contains('workingDirectory'), isFalse);
+      expect(signature.contains('targetWorkingDirectory'), isFalse);
+    });
+
+    test('syncFromHead 内部调用 svn log 不传 workingDirectory', () {
+      final start = source.indexOf('Future<int> syncFromHead({');
+      final end = source.indexOf('  /// 获取 HEAD revision', start);
+      final body = source.substring(start, end);
+
+      expect(body.contains('workingDirectory:'), isFalse);
+    });
+
+    test('syncLogs 抓取源日志时不把目标工作副本作为 svn log cwd', () {
+      final start = source.indexOf('Future<int> syncLogs({');
+      final end = source.indexOf('  /// 查找分支点', start);
+      final body = source.substring(start, end);
+      final fetchLogStart = body.indexOf('final rawLog = await _svnService.log(');
+      final fetchLogEnd = body.indexOf(');', fetchLogStart);
+      final fetchLogCall = body.substring(fetchLogStart, fetchLogEnd);
+
+      expect(fetchLogCall.contains('workingDirectory:'), isFalse);
+      expect(body.contains('targetWorkingDirectory:'), isTrue,
+          reason: '目标工作副本只应保留在 syncLogs 参数和分支点判断里');
     });
   });
 

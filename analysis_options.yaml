@@ -13,6 +13,14 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
+    - "logs/**"
   errors:
     invalid_annotation_target: ignore
+    dangling_library_doc_comments: ignore
+    unnecessary_brace_in_string_interps: ignore
+    prefer_const_constructors: ignore
+    prefer_final_fields: ignore
+    prefer_conditional_assignment: ignore
+    package_names: ignore
+    unintended_html_in_doc_comment: ignore
 

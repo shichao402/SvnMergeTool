@@ -40,8 +40,7 @@ String resolveConfigDir(String appSupportDir) =>
 /// - 子目录名是 `'logs'`（复数，小写）；不是 `'log'`。
 /// - **不**做 IO；纯字符串拼接。
 @visibleForTesting
-String resolveLogsDir(String appSupportDir) =>
-    path.join(appSupportDir, 'logs');
+String resolveLogsDir(String appSupportDir) => path.join(appSupportDir, 'logs');
 
 /// 拼接"缓存目录"的完整路径：`<dataDir>/cache`。
 ///
@@ -76,8 +75,7 @@ String resolveMergeInfoCacheDir(String dataDir) =>
 ///   单测断言路径以 `.json` 结尾以保护这个语义。
 /// - **不**做 IO；纯字符串拼接。
 @visibleForTesting
-String resolveQueueFilePath(String dataDir) =>
-    path.join(dataDir, 'queue.json');
+String resolveQueueFilePath(String dataDir) => path.join(dataDir, 'queue.json');
 
 /// 拼接"源 URL 历史配置文件"的完整路径：`<configDir>/source_urls.json`。
 ///
@@ -119,6 +117,11 @@ class AppPathsService {
   AppPathsService._internal();
 
   String? _appSupportDir;
+
+  @visibleForTesting
+  void setAppSupportDirForTesting(String? appSupportDir) {
+    _appSupportDir = appSupportDir;
+  }
 
   Future<String> getAppSupportDir() async {
     if (_appSupportDir != null) {
