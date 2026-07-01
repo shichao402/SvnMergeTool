@@ -13,6 +13,9 @@ import 'package:flutter/services.dart';
 import '../models/app_config.dart';
 import '../services/storage_service.dart';
 import '../services/logger_service.dart';
+import '../services/svn_auth_clear_service.dart';
+import '../services/svn_auth_gate_service.dart';
+import '../services/svn_service.dart';
 import '../utils/open_directory.dart';
 
 /// 设置界面返回的结果
@@ -161,11 +164,19 @@ class SettingsScreen extends StatefulWidget {
   /// 当前的合并校验脚本路径
   final String? currentMergeValidationScriptPath;
 
+  /// 当前源 URL（用于鉴权引导，可选）
+  final String? sourceUrl;
+
+  /// 当前目标 SVN URL（精简模式，可选）
+  final String? targetUrl;
+
   const SettingsScreen({
     super.key,
     required this.currentPreloadSettings,
     required this.currentMaxRetries,
     this.currentMergeValidationScriptPath,
+    this.sourceUrl,
+    this.targetUrl,
   });
 
   @override
@@ -177,6 +188,8 @@ class SettingsScreen extends StatefulWidget {
     required PreloadSettings currentPreloadSettings,
     required int currentMaxRetries,
     String? currentMergeValidationScriptPath,
+    String? sourceUrl,
+    String? targetUrl,
   }) async {
     return Navigator.of(context).push<SettingsResult>(
       MaterialPageRoute(
@@ -184,6 +197,8 @@ class SettingsScreen extends StatefulWidget {
           currentPreloadSettings: currentPreloadSettings,
           currentMaxRetries: currentMaxRetries,
           currentMergeValidationScriptPath: currentMergeValidationScriptPath,
+          sourceUrl: sourceUrl,
+          targetUrl: targetUrl,
         ),
       ),
     );
@@ -211,10 +226,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _maxRetriesController = TextEditingController();
   final _mergeValidationScriptPathController = TextEditingController();
 
+  SvnAuthUiState? _authUiState;
+  bool _authStatusLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _refreshAuthStatus();
   }
 
   void _loadSettings() {
@@ -388,6 +407,203 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _refreshAuthStatus() async {
+    setState(() => _authStatusLoading = true);
+    try {
+      final state = await SvnAuthGateService().resolveAuthUiState(
+        sourceUrl: widget.sourceUrl,
+        targetUrl: widget.targetUrl,
+      );
+      if (!mounted) return;
+      setState(() {
+        _authUiState = state;
+        _authStatusLoading = false;
+      });
+    } catch (e, stackTrace) {
+      AppLogger.credential.error('刷新 SVN 鉴权状态失败', e, stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _authUiState = SvnAuthUiState.needsAuth;
+        _authStatusLoading = false;
+      });
+    }
+  }
+
+  Future<void> _confirmRemoveSvnAuth() async {
+    final authDirPath = resolveSubversionAuthDir(
+      operatingSystem: Platform.operatingSystem,
+      homeDir: Platform.environment['HOME'],
+      appDataDir: Platform.environment['APPDATA'],
+      svnConfigDirEnv: Platform.environment['SVN_CONFIG_DIR'],
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('移除 SVN 鉴权信息？'),
+        content: SingleChildScrollView(
+          child: Text(
+            buildSvnAuthClearDialogText(
+              operatingSystem: Platform.operatingSystem,
+              authDirPath: authDirPath,
+              svnConfigDirEnv: Platform.environment['SVN_CONFIG_DIR'],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    try {
+      final result = await SvnAuthGateService().removeAuth();
+      AppLogger.credential.info(
+        '用户从设置页移除 SVN 鉴权缓存: ${result.authDirPath}',
+      );
+      if (!mounted) return;
+      await _refreshAuthStatus();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(formatSvnAuthClearSnackBar(result))),
+      );
+    } catch (e, stackTrace) {
+      AppLogger.credential.error('移除 SVN 鉴权缓存失败', e, stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('移除 SVN 鉴权信息失败：$e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showAddSvnAuthGuide() async {
+    final urls = collectAuthGuideUrls(
+      sourceUrl: widget.sourceUrl,
+      targetUrl: widget.targetUrl,
+    );
+    final svnPath = SvnService().svnExecutablePath;
+    final commands = urls
+        .map(
+          (url) => formatSvnAuthTerminalCommand(
+            svnExecutable: svnPath,
+            url: url,
+          ),
+        )
+        .toList();
+
+    final dialogResult = await showDialog<SvnAddAuthDialogResult>(
+      context: context,
+      builder: (ctx) => SvnAddAuthDialog(
+        operatingSystem: Platform.operatingSystem,
+        urls: urls,
+        terminalCommands: commands,
+      ),
+    );
+    if (dialogResult == null ||
+        dialogResult.choice == SvnAddAuthDialogChoice.cancelled ||
+        !mounted) {
+      return;
+    }
+
+    try {
+      final AddAuthResult result;
+      if (dialogResult.choice == SvnAddAuthDialogChoice.tryInteractive) {
+        result = await SvnAuthGateService().addAuthForConfiguredUrls(
+          sourceUrl: widget.sourceUrl,
+          targetUrl: widget.targetUrl,
+        );
+      } else {
+        result =
+            await SvnAuthGateService().addAuthForConfiguredUrlsWithCredentials(
+          sourceUrl: widget.sourceUrl,
+          targetUrl: widget.targetUrl,
+          username: dialogResult.username,
+          password: dialogResult.password,
+        );
+      }
+      if (!mounted) return;
+      await _refreshAuthStatus();
+      if (!mounted) return;
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SVN 鉴权已完成，可返回主界面同步日志'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.message ?? '鉴权未完成'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      AppLogger.credential.error('添加 SVN 鉴权失败', e, stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('添加鉴权失败：$e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildSvnAuthListTile() {
+    if (_authStatusLoading) {
+      return const ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.vpn_key),
+        title: Text('SVN 鉴权'),
+        subtitle: Text('正在检测鉴权状态…'),
+        trailing: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    final hasAuth = _authUiState == SvnAuthUiState.hasAuth;
+    if (hasAuth) {
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.vpn_key_off),
+        title: const Text('移除鉴权'),
+        subtitle: const Text(
+          '清除 Subversion auth 缓存；不影响本应用已缓存的日志列表',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _confirmRemoveSvnAuth,
+      );
+    }
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.vpn_key),
+      title: const Text('添加鉴权信息'),
+      subtitle: const Text(
+        '通过 SVN 客户端完成鉴权；本应用不保存密码',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _showAddSvnAuthGuide,
+    );
+  }
+
   Future<void> _openLogDirectory() async {
     try {
       final logDir = await logger.getLogDirectory();
@@ -529,6 +745,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: _openLogDirectory,
                     ),
+                    const Divider(),
+                    _buildSvnAuthListTile(),
                   ],
                 ),
               ),
@@ -750,6 +968,172 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 设置页「添加鉴权」对话框：推荐自行配置 + 可选用户名密码路径。
+class SvnAddAuthDialog extends StatefulWidget {
+  final String operatingSystem;
+  final List<String> urls;
+  final List<String> terminalCommands;
+
+  const SvnAddAuthDialog({
+    super.key,
+    required this.operatingSystem,
+    required this.urls,
+    required this.terminalCommands,
+  });
+
+  @override
+  State<SvnAddAuthDialog> createState() => _SvnAddAuthDialogState();
+}
+
+class _SvnAddAuthDialogState extends State<SvnAddAuthDialog> {
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String? _credentialsError;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _copyCommands(BuildContext ctx) {
+    Clipboard.setData(ClipboardData(text: widget.terminalCommands.join('\n')));
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      const SnackBar(content: Text('已复制终端命令')),
+    );
+  }
+
+  void _submitCredentials() {
+    final username = _usernameController.text;
+    final password = _passwordController.text;
+    final validationError = validateSvnAuthCredentialsInput(
+      username: username,
+      password: password,
+    );
+    if (validationError != null) {
+      setState(() => _credentialsError = validationError);
+      return;
+    }
+    Navigator.of(context).pop(
+      SvnAddAuthDialogResult(
+        choice: SvnAddAuthDialogChoice.useCredentials,
+        username: username.trim(),
+        password: password,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUrls = widget.urls.isNotEmpty;
+    return AlertDialog(
+      title: const Text('添加 SVN 鉴权信息'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              buildSvnAuthAddDialogText(
+                operatingSystem: widget.operatingSystem,
+                urls: widget.urls,
+                terminalCommands: widget.terminalCommands,
+              ),
+            ),
+            if (hasUrls) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('使用用户名和密码登录'),
+                subtitle: Text(
+                  buildSvnAuthCredentialsHintText(),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                initiallyExpanded: false,
+                onExpansionChanged: (expanded) {
+                  if (!expanded) {
+                    setState(() => _credentialsError = null);
+                  }
+                },
+                children: [
+                  TextField(
+                    controller: _usernameController,
+                    decoration: const InputDecoration(
+                      labelText: '用户名',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    textInputAction: TextInputAction.next,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _passwordController,
+                    decoration: const InputDecoration(
+                      labelText: '密码',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    onSubmitted: (_) => _submitCredentials(),
+                  ),
+                  if (_credentialsError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _credentialsError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: _submitCredentials,
+                      child: const Text('使用账号密码登录'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        if (widget.terminalCommands.isNotEmpty)
+          TextButton(
+            onPressed: () => _copyCommands(context),
+            child: const Text('复制命令'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(
+            const SvnAddAuthDialogResult(
+              choice: SvnAddAuthDialogChoice.cancelled,
+            ),
+          ),
+          child: const Text('取消'),
+        ),
+        if (hasUrls)
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(
+              const SvnAddAuthDialogResult(
+                choice: SvnAddAuthDialogChoice.tryInteractive,
+              ),
+            ),
+            child: const Text('尝试在此完成鉴权'),
+          ),
+      ],
     );
   }
 }

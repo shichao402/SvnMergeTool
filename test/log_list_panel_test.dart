@@ -101,7 +101,6 @@ class _RestartHeadSyncHarnessState extends State<_RestartHeadSyncHarness> {
             onStopOnCopyChanged: (_) {},
             onApplyFilter: () {},
             onClearFilter: () {},
-            onRefresh: () {},
             canSyncLatest: true,
             onSyncLatest: () {
               _syncLatestFromUi();
@@ -1219,9 +1218,8 @@ void main() {
         messageController: TextEditingController(),
         stopOnCopy: false,
         onStopOnCopyChanged: (_) {},
-        onApplyFilter: () {},
-        onRefresh: () {},
-        canSyncLatest: true,
+            onApplyFilter: () {},
+            canSyncLatest: true,
         onSyncLatest: () {},
         canLoadMore: true,
         onLoadMore: () {},
@@ -1449,6 +1447,99 @@ void main() {
         isTrue,
         reason: '三按钮（过滤 / 同步最新 / 加载更多）必须均出现同款 spinner，至少 3 处字面量',
       );
+    });
+  });
+
+  group('logListActionTipsText', () {
+    test('combines sync and local cache tips', () {
+      expect(
+        logListActionTipsText(),
+        '${logListSyncLatestTip()} · ${logListLocalCacheTip()}',
+      );
+    });
+  });
+
+  group('LogListPanel 操作说明', () {
+    LogListPanel buildPanel({
+      VoidCallback? onSyncLatest,
+      bool isLoading = false,
+    }) {
+      return LogListPanel(
+        entries: const [],
+        selectedRevisions: const {},
+        pendingRevisions: const {},
+        mergedRevisions: const {},
+        isLoading: isLoading,
+        authorController: TextEditingController(),
+        titleController: TextEditingController(),
+        messageController: TextEditingController(),
+        stopOnCopy: false,
+        onStopOnCopyChanged: (_) {},
+        onApplyFilter: () {},
+        canSyncLatest: true,
+        onSyncLatest: onSyncLatest ?? () {},
+        canLoadMore: false,
+        onLoadMore: () {},
+        canStopPreload: false,
+        onStopPreload: () {},
+        canExportCsv: false,
+        onExportCsv: () {},
+        cachedCount: 0,
+        latestCachedRevision: null,
+        earliestCachedRevision: null,
+        branchPoint: null,
+        preloadStatusText: null,
+        boundaryText: null,
+        currentPage: 0,
+        totalPages: 1,
+        hasMore: false,
+        onPageChanged: (_) {},
+        selectableEntryCount: 0,
+        onSelectAllSelectable: () {},
+        onClearSelection: () {},
+        onSelectionChanged: (_, __) {},
+      );
+    }
+
+    testWidgets('顶部展示操作说明', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: buildPanel(),
+          ),
+        ),
+      );
+
+      expect(find.text(logListActionTipsText()), findsOneWidget);
+    });
+
+    testWidgets('过滤栏不展示刷新图标', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: buildPanel(),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.refresh), findsNothing);
+    });
+
+    testWidgets('同步最新触发 onSyncLatest', (tester) async {
+      var syncCount = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: buildPanel(
+              onSyncLatest: () => syncCount++,
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('同步最新'));
+      await tester.pump();
+      expect(syncCount, 1);
     });
   });
 }

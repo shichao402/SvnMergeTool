@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import '../utils/process_output_decoder.dart';
 import 'log_filter_service.dart' show appLogSeparator;
 import 'logger_service.dart';
+import 'svn_auth_exceptions.dart';
 import 'svn_xml_parser.dart';
 
 /// 判断 SVN 命令行的 [username] / [password] 凭据是否「值得加到 args」。
@@ -60,6 +61,7 @@ List<String> buildSvnCliArgs({
   required List<String> baseArgs,
   String? username,
   String? password,
+  bool interactive = false,
 }) {
   final args = <String>[svnPath];
   if (isUsableSvnCredential(username)) {
@@ -68,7 +70,9 @@ List<String> buildSvnCliArgs({
   if (isUsableSvnCredential(password)) {
     args.addAll(['--password', password!]);
   }
-  args.add('--non-interactive');
+  if (!interactive) {
+    args.add('--non-interactive');
+  }
   args.addAll(baseArgs);
   return args;
 }
@@ -199,9 +203,12 @@ String formatProbeFailureReason({
   required String role,
   required Object error,
 }) {
+  if (error is SvnAuthRequiredException) {
+    return '$role 校验失败：需要 SVN 鉴权，请在设置中添加鉴权信息';
+  }
   if (error is SvnException) {
     if (svnOutputNeedsAuth(error.output)) {
-      return '$role 校验失败：需要 SVN 凭据，请在设置中配置';
+      return '$role 校验失败：需要 SVN 鉴权，请在设置中添加鉴权信息';
     }
     return '$role 校验失败：${error.message}';
   }
@@ -250,6 +257,18 @@ String formatSvnCommandStartLine({
   final workingDirInfo =
       workingDirectory != null ? ' (工作目录: $workingDirectory)' : '';
   return '[SVN 命令执行] svn $displayArgs$authInfo$xmlInfo$workingDirInfo';
+}
+
+/// 从用于日志展示的命令行字符串中掩码密码参数值。
+@visibleForTesting
+String maskSvnCliPasswordInDisplayArgs(
+  String displayArgs, {
+  String? password,
+}) {
+  if (password == null || password.isEmpty) {
+    return displayArgs;
+  }
+  return displayArgs.replaceAll(password, '****');
 }
 
 /// 渲染 `_runSvnCommand` 成功路径的结果行。
@@ -942,13 +961,55 @@ class SvnService {
     List<String> baseArgs, {
     String? username,
     String? password,
+    bool interactive = false,
   }) =>
       buildSvnCliArgs(
         svnPath: _svnPath,
         baseArgs: baseArgs,
         username: username,
         password: password,
+        interactive: interactive,
       );
+
+  /// 鉴权门禁回调（由 [SvnAuthGateService] 在启动时注册，避免循环依赖）。
+  Future<void> Function(String url)? _authEnsurer;
+
+  @visibleForTesting
+  void registerAuthEnsurer(Future<void> Function(String url) ensurer) {
+    _authEnsurer = ensurer;
+  }
+
+  Future<void> _ensureAuthForRemoteUrl(String pathOrUrl) async {
+    if (!isSvnRepositoryUrl(pathOrUrl)) {
+      return;
+    }
+    final ensurer = _authEnsurer;
+    if (ensurer != null) {
+      await ensurer(pathOrUrl);
+    }
+  }
+
+  /// 低层 `svn info` 探针，不经过鉴权门禁（供 [SvnAuthGateService] 使用）。
+  Future<SvnProcessResult> runInfoProbeRaw(
+    String url, {
+    bool interactive = false,
+    String? username,
+    String? password,
+  }) async {
+    final args = buildSvnInfoArgs(path: url, item: 'url');
+    return _runSvnCommand(
+      args,
+      useXml: false,
+      workingDirectory: null,
+      username: username,
+      password: password,
+      interactive: interactive,
+      throwOnFailure: false,
+    );
+  }
+
+  /// 当前检测到的 SVN 可执行文件路径（供设置页生成终端命令）。
+  String get svnExecutablePath => _svnPath;
 
   /// 执行 SVN 命令
   ///
@@ -963,6 +1024,8 @@ class SvnService {
     String? workingDirectory,
     String? username,
     String? password,
+    bool interactive = false,
+    bool throwOnFailure = true,
   }) async {
     // 如果需要 XML 输出，检查命令是否支持 XML
     final injection =
@@ -972,11 +1035,19 @@ class SvnService {
       _log('⚠ 命令 "${injection.suppressedCommand}" 不支持 --xml 参数，已忽略 useXml 设置');
     }
 
-    final fullArgs =
-        _buildSvnArgs(finalArgs, username: username, password: password);
+    final fullArgs = _buildSvnArgs(
+      finalArgs,
+      username: username,
+      password: password,
+      interactive: interactive,
+    );
 
     // 隐藏密码的日志输出
     final displayArgs = finalArgs.join(' ');
+    final safeDisplayArgs = maskSvnCliPasswordInDisplayArgs(
+      displayArgs,
+      password: password,
+    );
 
     // 记录命令执行开始
     _log(appLogSeparator);
@@ -1028,7 +1099,7 @@ class SvnService {
         durationMs: duration.inMilliseconds,
       ));
       // 失败时记录命令和错误输出，便于排查
-      _log('  命令: svn $displayArgs');
+      _log('  命令: svn $safeDisplayArgs');
       if (stderr.isNotEmpty) {
         _log('  错误: ${stderr.trim()}');
       }
@@ -1049,6 +1120,9 @@ class SvnService {
     _log(appLogSeparator);
 
     if (wrappedResult.exitCode != 0) {
+      if (!throwOnFailure) {
+        return wrappedResult;
+      }
       // R98 symmetric throw 标记（参见 feedback_audit_dimension_switch.md
       // "throw 对称性审计"维度）：SvnException 类本身已带完整测试覆盖
       // （test/svn_service_test.dart `group('SvnException')` + `group('formatSvnExceptionMessage')`），
@@ -1082,6 +1156,7 @@ class SvnService {
     String? username,
     String? password,
   }) async {
+    await _ensureAuthForRemoteUrl(branchUrl);
     _log(appLogSeparator);
     for (final line in formatFindBranchPointHeaderLines(
       branchUrl: branchUrl,
@@ -1130,6 +1205,7 @@ class SvnService {
     String? username,
     String? password,
   }) async {
+    await _ensureAuthForRemoteUrl(sourceUrl);
     _log(appLogSeparator);
     _log('【SvnService.findRootTail】查找根尾（ROOT_TAIL）');
     _log('  源 URL: $sourceUrl');
@@ -1188,6 +1264,7 @@ class SvnService {
     String? username,
     String? password,
   }) async {
+    await _ensureAuthForRemoteUrl(url);
     _log(appLogSeparator);
     _log('【SvnService.log】开始读取 SVN 日志');
     _log('  URL: $url');
@@ -1559,6 +1636,7 @@ class SvnService {
     String? username,
     String? password,
   }) async {
+    await _ensureAuthForRemoteUrl(path);
     AppLogger.svn.info('【SvnService.getInfo】获取 SVN 信息');
     AppLogger.svn.info('  路径: $path');
     AppLogger.svn.info('  项目: ${item ?? "全部"}');
@@ -1606,6 +1684,8 @@ class SvnService {
     bool throwOnError = false,
   }) async {
     try {
+      await _ensureAuthForRemoteUrl(sourceUrl);
+      await _ensureAuthForRemoteUrl(target);
       _log('检查 revision r$revision 是否已合并到 $target');
       // 使用 svn mergeinfo 命令检查（mergeinfo 不支持 --xml，使用文本输出）
       final result = await _runSvnCommand(

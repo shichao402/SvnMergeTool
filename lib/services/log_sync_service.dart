@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart';
 import '../models/log_entry.dart';
 import 'log_filter_service.dart' show appLogSeparator, isUsableWorkingDirectory;
 import 'svn_service.dart';
+import 'svn_auth_exceptions.dart';
+import 'svn_auth_gate_service.dart';
 import 'log_cache_service.dart';
 import 'logger_service.dart';
 import 'svn_xml_parser.dart';
@@ -378,7 +380,13 @@ class LogSyncService {
         return entries.first.revision;
       }
       return null;
+    } on SvnAuthRequiredException {
+      rethrow;
     } catch (e) {
+      final normalized = normalizeSvnAuthError(e, url: sourceUrl);
+      if (normalized is SvnAuthRequiredException) {
+        throw normalized;
+      }
       AppLogger.svn.error('获取 HEAD revision 失败: $e');
       return null;
     }

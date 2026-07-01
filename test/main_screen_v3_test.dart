@@ -1766,11 +1766,16 @@ void main() {
     // 出 result，所以 result != null 一定是"成功"分支）。
     final src = File('lib/screens/main_screen_v3.dart').readAsStringSync();
 
-    test('_openSettings 在 result != null 路径调用 _showSuccess(已保存设置)', () {
+    String openSettingsBody() {
       final start = src.indexOf('Future<void> _openSettings() async {');
       expect(start, greaterThan(0), reason: '必须存在 _openSettings 方法');
-      // 取方法体（往后 600 字符足够覆盖完整方法）
-      final body = src.substring(start, start + 600);
+      final end = src.indexOf('Future<bool> _confirmConfigEditIfNeeded()', start);
+      expect(end, greaterThan(start), reason: '_openSettings 后应紧接 _confirmConfigEditIfNeeded');
+      return src.substring(start, end);
+    }
+
+    test('_openSettings 在 result != null 路径调用 _showSuccess(已保存设置)', () {
+      final body = openSettingsBody();
       expect(
         body.contains("_showSuccess('已保存设置');"),
         isTrue,
@@ -1779,8 +1784,7 @@ void main() {
     });
 
     test('_showSuccess 调用位于 setState 之后（先持久化再反馈）', () {
-      final start = src.indexOf('Future<void> _openSettings() async {');
-      final body = src.substring(start, start + 600);
+      final body = openSettingsBody();
       final setStateIdx = body.indexOf('setState(() {');
       final feedbackIdx = body.indexOf("_showSuccess('已保存设置');");
       expect(setStateIdx, greaterThan(0));
@@ -1789,8 +1793,7 @@ void main() {
     });
 
     test('_showSuccess 调用包在 result != null && mounted 守卫内', () {
-      final start = src.indexOf('Future<void> _openSettings() async {');
-      final body = src.substring(start, start + 600);
+      final body = openSettingsBody();
       final guardIdx = body.indexOf('if (result != null && mounted) {');
       final feedbackIdx = body.indexOf("_showSuccess('已保存设置');");
       expect(guardIdx, greaterThan(0));

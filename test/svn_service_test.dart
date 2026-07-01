@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:svn_auto_merge/services/svn_service.dart';
+import 'package:svn_auto_merge/services/svn_auth_exceptions.dart';
 import 'package:svn_auto_merge/services/log_filter_service.dart'
     show isUsableWorkingDirectory;
 import 'package:svn_auto_merge/providers/app_state.dart' show isUsableSourceUrl;
@@ -83,6 +84,38 @@ void main() {
       expect(
         buildSvnCliArgs(svnPath: 'svn', baseArgs: const []),
         ['svn', '--non-interactive'],
+      );
+    });
+
+    test('interactive=true 时不追加 --non-interactive', () {
+      expect(
+        buildSvnCliArgs(
+          svnPath: 'svn',
+          baseArgs: const ['info', 'https://example.com'],
+          interactive: true,
+        ),
+        ['svn', 'info', 'https://example.com'],
+      );
+    });
+
+    test('interactive=true 且带 username/password 用于一次性鉴权缓存', () {
+      expect(
+        buildSvnCliArgs(
+          svnPath: 'svn',
+          baseArgs: const ['info', 'https://example.com'],
+          username: 'alice',
+          password: 'p@ss',
+          interactive: true,
+        ),
+        [
+          'svn',
+          '--username',
+          'alice',
+          '--password',
+          'p@ss',
+          'info',
+          'https://example.com',
+        ],
       );
     });
   });
@@ -281,6 +314,16 @@ void main() {
   });
 
   group('formatProbeFailureReason', () {
+    test('SvnAuthRequiredException → 鉴权失败文案', () {
+      expect(
+        formatProbeFailureReason(
+          role: '源 URL',
+          error: const SvnAuthRequiredException(url: 'https://x'),
+        ),
+        '源 URL 校验失败：需要 SVN 鉴权，请在设置中添加鉴权信息',
+      );
+    });
+
     test('SvnException + 输出含鉴权关键词 → 鉴权失败文案', () {
       final e = SvnException(
         'svn info failed',
@@ -290,7 +333,7 @@ void main() {
       );
       expect(
         formatProbeFailureReason(role: '源 URL', error: e),
-        '源 URL 校验失败：需要 SVN 凭据，请在设置中配置',
+        '源 URL 校验失败：需要 SVN 鉴权，请在设置中添加鉴权信息',
       );
     });
 
@@ -510,6 +553,25 @@ void main() {
       );
       expect(line.contains('****'), isTrue);
       expect(line.contains('p@ss'), isFalse);
+    });
+  });
+
+  group('maskSvnCliPasswordInDisplayArgs', () {
+    test('掩码 displayArgs 中的密码值', () {
+      expect(
+        maskSvnCliPasswordInDisplayArgs(
+          'svn --username alice --password secret123 info https://x',
+          password: 'secret123',
+        ),
+        'svn --username alice --password **** info https://x',
+      );
+    });
+
+    test('无密码时不改动', () {
+      expect(
+        maskSvnCliPasswordInDisplayArgs('svn info https://x'),
+        'svn info https://x',
+      );
     });
   });
 

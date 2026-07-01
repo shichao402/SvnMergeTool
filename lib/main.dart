@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'providers/app_state.dart';
 import 'providers/merge_execution_state.dart';
 import 'services/svn_service.dart';
+import 'services/svn_auth_gate_service.dart';
 import 'services/storage_service.dart';
 import 'services/logger_service.dart';
 import 'services/window_state_service.dart';
@@ -161,6 +162,8 @@ void main() async {
     // 初始化服务
     try {
       await SvnService().init();
+      // 注册 SVN 鉴权门禁回调（须在 SvnService.init 之后）。
+      SvnAuthGateService();
       AppLogger.app.info('SVN 服务初始化成功');
     } catch (e, stackTrace) {
       AppLogger.app.error('SVN 服务初始化失败', e, stackTrace);

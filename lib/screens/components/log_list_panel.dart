@@ -501,6 +501,17 @@ String formatLogEntryDateTooltip(String date) {
   return date;
 }
 
+/// 日志列表顶部操作说明：「同步最新」与本地缓存列表行为。
+@visibleForTesting
+String logListSyncLatestTip() => '同步最新：从 SVN 拉取新提交';
+
+@visibleForTesting
+String logListLocalCacheTip() => '列表基于本地缓存，筛选或切换选项时自动重载';
+
+@visibleForTesting
+String logListActionTipsText() =>
+    '${logListSyncLatestTip()} · ${logListLocalCacheTip()}';
+
 /// 日志列表面板
 class LogListPanel extends StatelessWidget {
   // 数据
@@ -528,7 +539,6 @@ class LogListPanel extends StatelessWidget {
   /// 不值得为此破坏命令式订阅 = 0 不变量。
   final VoidCallback? onClearFilter;
 
-  final VoidCallback onRefresh;
   final bool canSyncLatest;
   final VoidCallback onSyncLatest;
   final bool canLoadMore;
@@ -583,7 +593,6 @@ class LogListPanel extends StatelessWidget {
     required this.onStopOnCopyChanged,
     required this.onApplyFilter,
     this.onClearFilter,
-    required this.onRefresh,
     required this.canSyncLatest,
     required this.onSyncLatest,
     required this.canLoadMore,
@@ -612,6 +621,7 @@ class LogListPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        const _ActionTipsBar(),
         // 过滤栏
         _FilterBar(
           authorController: authorController,
@@ -630,7 +640,6 @@ class LogListPanel extends StatelessWidget {
           onStopOnCopyChanged: onStopOnCopyChanged,
           onApplyFilter: onApplyFilter,
           onClearFilter: onClearFilter,
-          onRefresh: onRefresh,
           onSyncLatest: onSyncLatest,
           onLoadMore: onLoadMore,
           canStopPreload: canStopPreload,
@@ -679,6 +688,27 @@ class LogListPanel extends StatelessWidget {
   }
 }
 
+/// 顶部操作说明（同步最新与本地缓存列表）
+class _ActionTipsBar extends StatelessWidget {
+  const _ActionTipsBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Text(
+        logListActionTipsText(),
+        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+      ),
+    );
+  }
+}
+
 /// 过滤栏
 class _FilterBar extends StatelessWidget {
   final TextEditingController authorController;
@@ -697,7 +727,6 @@ class _FilterBar extends StatelessWidget {
   final void Function(bool) onStopOnCopyChanged;
   final VoidCallback onApplyFilter;
   final VoidCallback? onClearFilter;
-  final VoidCallback onRefresh;
   final VoidCallback onSyncLatest;
   final VoidCallback onLoadMore;
   final bool canStopPreload;
@@ -726,7 +755,6 @@ class _FilterBar extends StatelessWidget {
     required this.onStopOnCopyChanged,
     required this.onApplyFilter,
     this.onClearFilter,
-    required this.onRefresh,
     required this.onSyncLatest,
     required this.onLoadMore,
     required this.canStopPreload,
@@ -911,11 +939,6 @@ class _FilterBar extends StatelessWidget {
                     selectedCount > 0 && !isLoading ? onClearSelection : null,
                 icon: const Icon(Icons.deselect, size: 16),
                 label: Text('清空选择 ($selectedCount)'),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: isLoading ? null : onRefresh,
-                tooltip: '刷新列表',
               ),
             ],
           ),

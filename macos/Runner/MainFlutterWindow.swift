@@ -39,8 +39,4 @@ extension MainFlutterWindow: NSWindowDelegate {
     os_log("窗口关闭请求（windowShouldClose）", log: logger, type: .info)
     return true
   }
-  
-  func windowDidClose(_ notification: Notification) {
-    os_log("窗口已关闭（windowDidClose）", log: logger, type: .info)
-  }
 }

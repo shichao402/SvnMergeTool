@@ -109,6 +109,7 @@ import '../models/log_entry.dart';
 import '../models/merge_config.dart';
 import '../models/merge_job.dart';
 import '../services/svn_service.dart';
+import '../services/svn_auth_gate_service.dart';
 import '../services/logger_service.dart';
 import '../services/storage_service.dart';
 import '../services/log_filter_service.dart';
@@ -1707,7 +1708,11 @@ class _MainScreenV3State extends State<MainScreenV3> {
         // sync 段失败：远程 SVN 请求 / DB 写入未完成，走原"日志同步失败"路径。
         AppLogger.ui.error('日志数据操作失败（sync 段）', e, stackTrace);
         if (mounted) {
-          _showError('日志同步失败: $e');
+          if (isSvnAuthRequiredError(e)) {
+            _showAuthRequiredSnackBar();
+          } else {
+            _showError('日志同步失败: $e');
+          }
         }
         return;
       }
@@ -2179,6 +2184,20 @@ class _MainScreenV3State extends State<MainScreenV3> {
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showAuthRequiredSnackBar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(formatLogSyncAuthFailureMessage()),
+        backgroundColor: Colors.red,
+        action: SnackBarAction(
+          label: '去设置',
+          textColor: Colors.white,
+          onPressed: _openSettings,
+        ),
+      ),
     );
   }
 
@@ -2683,11 +2702,18 @@ class _MainScreenV3State extends State<MainScreenV3> {
   }
 
   Future<void> _openSettings() async {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final targetConfig = _currentTargetConfig(appState);
+    final targetUrl = targetConfig.isTemporarySparseWorkingCopy
+        ? targetConfig.svnUrl
+        : null;
     final result = await SettingsScreen.show(
       context,
       currentPreloadSettings: _preloadSettings,
       currentMaxRetries: _maxRetries,
       currentMergeValidationScriptPath: _mergeValidationScriptPath,
+      sourceUrl: _sourceUrlController.text.trim(),
+      targetUrl: targetUrl,
     );
     if (result != null && mounted) {
       setState(() {
@@ -3770,7 +3796,6 @@ class _MainScreenV3State extends State<MainScreenV3> {
             },
             onApplyFilter: _applyFilter,
             onClearFilter: _clearAllLogFilters,
-            onRefresh: () => _syncLatestLogs(),
             canSyncLatest: sourceUrl.isNotEmpty,
             onSyncLatest: () => _syncLatestLogs(),
             canLoadMore: canLoadMore,

@@ -43,7 +43,6 @@ Future<void> _pumpPanel(
         onStopOnCopyChanged: (_) {},
         onApplyFilter: () {},
         onClearFilter: onClearFilter,
-        onRefresh: () {},
         canSyncLatest: false,
         onSyncLatest: () {},
         canLoadMore: false,
