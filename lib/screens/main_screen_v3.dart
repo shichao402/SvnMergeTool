@@ -121,6 +121,7 @@ import '../services/working_copy_manager.dart';
 import '../services/gongfeng_cr_service.dart';
 import 'settings_screen.dart';
 import '../utils/open_directory.dart';
+import '../utils/app_banner.dart';
 
 // 组件导入
 import 'components/config_bar.dart';
@@ -1709,7 +1710,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
         AppLogger.ui.error('日志数据操作失败（sync 段）', e, stackTrace);
         if (mounted) {
           if (isSvnAuthRequiredError(e)) {
-            _showAuthRequiredSnackBar();
+            _showAuthRequiredBanner();
           } else {
             _showError('日志同步失败: $e');
           }
@@ -2182,35 +2183,33 @@ class _MainScreenV3State extends State<MainScreenV3> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    AppBanner.showContext(
+      context,
+      message: message,
+      kind: AppBannerKind.error,
     );
   }
 
-  void _showAuthRequiredSnackBar() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(formatLogSyncAuthFailureMessage()),
-        backgroundColor: Colors.red,
-        action: SnackBarAction(
-          label: '去设置',
-          textColor: Colors.white,
-          onPressed: _openSettings,
-        ),
-      ),
+  void _showAuthRequiredBanner() {
+    AppBanner.showContext(
+      context,
+      message: formatLogSyncAuthFailureMessage(),
+      kind: AppBannerKind.error,
+      actionLabel: '去设置',
+      onAction: _openSettings,
     );
   }
 
   void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    AppBanner.showContext(
+      context,
+      message: message,
+      kind: AppBannerKind.success,
     );
   }
 
   void _showInfo(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    AppBanner.showContext(context, message: message);
   }
 
   Future<bool> _confirmQueueAction({
@@ -2874,16 +2873,18 @@ class _MainScreenV3State extends State<MainScreenV3> {
         await Process.run(command.executable, command.args);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('不支持的平台，工作副本目录: $path')),
+          AppBanner.showContext(
+            context,
+            message: '不支持的平台，工作副本目录: $path',
           );
         }
       }
     } catch (e) {
       AppLogger.ui.error('打开工作副本目录失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开工作副本目录失败: $e')),
+        AppBanner.showContext(
+          context,
+          message: '打开工作副本目录失败: $e',
         );
       }
     }
@@ -2898,11 +2899,10 @@ class _MainScreenV3State extends State<MainScreenV3> {
   void _stopPreloadWithFeedback() {
     _preloadService.stopPreload();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已请求停止预加载（当前轮结束后生效）'),
-        duration: Duration(seconds: 2),
-      ),
+    AppBanner.showContext(
+      context,
+      message: '已请求停止预加载（当前轮结束后生效）',
+      duration: const Duration(seconds: 2),
     );
   }
 
@@ -2929,9 +2929,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
       final entries = await appState.getAllFilteredEntries(sourceUrl);
       if (!mounted) return;
       if (entries.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('当前无可导出条目')),
-        );
+        AppBanner.showContext(context, message: '当前无可导出条目');
         return;
       }
       final defaultName = formatCsvExportFileName(DateTime.now());
@@ -2950,23 +2948,17 @@ class _MainScreenV3State extends State<MainScreenV3> {
       // CSV 必须手动复制路径打开。同 panel 的 _openConflictFile 已用
       // resolveOpenFileCommand + Process.run 跨平台打开文件，这里复用同款体验：
       // 加 SnackBarAction "打开" 一键打开导出的 CSV，与冲突文件按钮对齐。
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('已导出 ${entries.length} 条到 $savePath'),
-          duration: const Duration(seconds: 6),
-          action: SnackBarAction(
-            label: '打开',
-            onPressed: () => _openExportedCsvFile(savePath),
-          ),
-        ),
+      AppBanner.show(
+        context,
+        message: '已导出 ${entries.length} 条到 $savePath',
+        duration: const Duration(seconds: 6),
+        actionLabel: '打开',
+        onAction: () => _openExportedCsvFile(savePath),
       );
     } catch (e) {
       AppLogger.ui.error('导出 CSV 失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出 CSV 失败: $e')),
-        );
+        AppBanner.showContext(context, message: '导出 CSV 失败: $e');
       }
     }
   }
@@ -2985,17 +2977,16 @@ class _MainScreenV3State extends State<MainScreenV3> {
         await Process.run(command.executable, command.args);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('不支持的平台，CSV 路径: $path')),
+          AppBanner.showContext(
+            context,
+            message: '不支持的平台，CSV 路径: $path',
           );
         }
       }
     } catch (e) {
       AppLogger.ui.error('打开导出的 CSV 失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开 CSV 失败: $e')),
-        );
+        AppBanner.showContext(context, message: '打开 CSV 失败: $e');
       }
     }
   }
@@ -3024,29 +3015,26 @@ class _MainScreenV3State extends State<MainScreenV3> {
         // 见 [formatMarkResolvedFeedback] dartdoc 的"两档契约"。
         final remaining = await _svnService.listConflictedFiles(targetWc);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              formatMarkResolvedFeedback(
-                modeFlag: mode.cliFlag,
-                remainingConflictCount: remaining.length,
-              ),
-            ),
+        AppBanner.showContext(
+          context,
+          message: formatMarkResolvedFeedback(
+            modeFlag: mode.cliFlag,
+            remainingConflictCount: remaining.length,
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                Text('标记失败: ${result.stderr.isEmpty ? "未知错误" : result.stderr}'),
-          ),
+        AppBanner.showContext(
+          context,
+          message:
+              '标记失败: ${result.stderr.isEmpty ? "未知错误" : result.stderr}',
         );
       }
     } catch (e) {
       AppLogger.ui.error('标记冲突已解决失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('标记冲突已解决失败: $e')),
+        AppBanner.showContext(
+          context,
+          message: '标记冲突已解决失败: $e',
         );
       }
     }
@@ -3069,27 +3057,23 @@ class _MainScreenV3State extends State<MainScreenV3> {
           role: '工作副本',
         );
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              formatCleanupFeedback(probeError: probeError),
-            ),
-          ),
+        AppBanner.showContext(
+          context,
+          message: formatCleanupFeedback(probeError: probeError),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+        AppBanner.showContext(
+          context,
+          message:
               'cleanup 失败: ${result.stderr.isEmpty ? "未知错误" : result.stderr}',
-            ),
-          ),
         );
       }
     } catch (e) {
       AppLogger.ui.error('执行 svn cleanup 失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('执行 svn cleanup 失败: $e')),
+        AppBanner.showContext(
+          context,
+          message: '执行 svn cleanup 失败: $e',
         );
       }
     }
@@ -3157,16 +3141,14 @@ class _MainScreenV3State extends State<MainScreenV3> {
     final ok = await mergeState.updateJobMaxRetries(job.jobId, newValue);
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已将任务 #${job.jobId} 的重试上限调整为 $newValue，可点击"继续"重试'),
-        ),
+      AppBanner.showContext(
+        context,
+        message: '已将任务 #${job.jobId} 的重试上限调整为 $newValue，可点击"继续"重试',
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('调整失败：新值必须大于当前上限 ${job.maxRetries}'),
-        ),
+      AppBanner.showContext(
+        context,
+        message: '调整失败：新值必须大于当前上限 ${job.maxRetries}',
       );
     }
   }
@@ -3223,12 +3205,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
       supplement,
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok ? '已保存提交附加信息，可点击"继续执行"重试提交' : '保存失败：提交附加信息不能为空',
-        ),
-      ),
+    AppBanner.showContext(
+      context,
+      message: ok ? '已保存提交附加信息，可点击"继续执行"重试提交' : '保存失败：提交附加信息不能为空',
     );
   }
 
@@ -3293,22 +3272,14 @@ class _MainScreenV3State extends State<MainScreenV3> {
       message: message,
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? '已保存 r$revision 的完整提交 Message，可点击"继续提交"'
-              : '保存失败：提交 Message 不能为空',
-        ),
-        action: ok
-            ? SnackBarAction(
-                label: '继续提交',
-                onPressed: () {
-                  _resumePausedJobWithFeedback(mergeState);
-                },
-              )
-            : null,
-      ),
+    AppBanner.showContext(
+      context,
+      message: ok
+          ? '已保存 r$revision 的完整提交 Message，可点击"继续提交"'
+          : '保存失败：提交 Message 不能为空',
+      kind: ok ? AppBannerKind.success : AppBannerKind.info,
+      actionLabel: ok ? '继续提交' : null,
+      onAction: ok ? () => _resumePausedJobWithFeedback(mergeState) : null,
     );
   }
 
@@ -3341,14 +3312,16 @@ class _MainScreenV3State extends State<MainScreenV3> {
         return;
       }
       final detail = e.output.isEmpty ? '' : '\n${e.output}';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('发起 Code Review 失败: ${e.message}$detail')),
+      AppBanner.showContext(
+        context,
+        message: '发起 Code Review 失败: ${e.message}$detail',
       );
     } catch (e, stackTrace) {
       AppLogger.ui.error('发起 Code Review 异常', e, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('发起 Code Review 失败: $e')),
+      AppBanner.showContext(
+        context,
+        message: '发起 Code Review 失败: $e',
       );
     }
   }
@@ -3415,8 +3388,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
                 TextButton(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: reviewUrl));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制 Code Review 链接')),
+                    AppBanner.showContext(
+                      context,
+                      message: '已复制 Code Review 链接',
                     );
                   },
                   child: const Text('复制链接'),
@@ -3433,8 +3407,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
                 onPressed: () async {
                   final message = controller.text.trim();
                   if (message.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('提交 Message 不能为空')),
+                    AppBanner.showContext(
+                      context,
+                      message: '提交 Message 不能为空',
                     );
                     return;
                   }
@@ -3449,8 +3424,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
                     );
                     if (!mounted) return;
                     if (!saved) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('保存提交 Message 失败')),
+                      AppBanner.showContext(
+                        context,
+                        message: '保存提交 Message 失败',
                       );
                       return;
                     }
@@ -3461,8 +3437,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
                     );
                     if (!mounted) return;
                     if (!saved) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('保存提交 Message 失败')),
+                      AppBanner.showContext(
+                        context,
+                        message: '保存提交 Message 失败',
                       );
                       return;
                     }
@@ -3490,8 +3467,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
       );
       if (command == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('不支持的平台，Code Review 链接: $reviewUrl')),
+        AppBanner.showContext(
+          context,
+          message: '不支持的平台，Code Review 链接: $reviewUrl',
         );
         return;
       }
@@ -3499,8 +3477,9 @@ class _MainScreenV3State extends State<MainScreenV3> {
     } catch (e, stackTrace) {
       AppLogger.ui.error('打开 Code Review 链接失败', e, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打开 Code Review 链接失败: $e')),
+      AppBanner.showContext(
+        context,
+        message: '打开 Code Review 链接失败: $e',
       );
     }
   }
@@ -3513,22 +3492,25 @@ class _MainScreenV3State extends State<MainScreenV3> {
       );
       if (command == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('不支持的平台，请在工作副本目录执行: gf auth login')),
+        AppBanner.showContext(
+          context,
+          message: '不支持的平台，请在工作副本目录执行: gf auth login',
         );
         return;
       }
 
       await Process.run(command.executable, command.args);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已打开工蜂登录终端，登录完成后请重新发起 Code Review')),
+      AppBanner.showContext(
+        context,
+        message: '已打开工蜂登录终端，登录完成后请重新发起 Code Review',
       );
     } catch (e, stackTrace) {
       AppLogger.ui.error('打开工蜂登录终端失败', e, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打开工蜂登录终端失败: $e')),
+      AppBanner.showContext(
+        context,
+        message: '打开工蜂登录终端失败: $e',
       );
     }
   }
@@ -3593,9 +3575,7 @@ class _MainScreenV3State extends State<MainScreenV3> {
       final conflicted = await _svnService.listConflictedFiles(targetWc);
       if (!mounted) return;
       if (conflicted.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未发现冲突文件')),
-        );
+        AppBanner.showContext(context, message: '未发现冲突文件');
         return;
       }
       final relative = conflicted.first;
@@ -3607,26 +3587,27 @@ class _MainScreenV3State extends State<MainScreenV3> {
       if (command != null) {
         await Process.run(command.executable, command.args);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(formatOpenConflictFileFeedback(
-              totalCount: conflicted.length,
-              openedRelative: relative,
-            )),
+        AppBanner.showContext(
+          context,
+          message: formatOpenConflictFileFeedback(
+            totalCount: conflicted.length,
+            openedRelative: relative,
           ),
         );
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('不支持的平台，冲突文件: $absolute')),
+          AppBanner.showContext(
+            context,
+            message: '不支持的平台，冲突文件: $absolute',
           );
         }
       }
     } catch (e) {
       AppLogger.ui.error('打开冲突文件失败', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开冲突文件失败: $e')),
+        AppBanner.showContext(
+          context,
+          message: '打开冲突文件失败: $e',
         );
       }
     }

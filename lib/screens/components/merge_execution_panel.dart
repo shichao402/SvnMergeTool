@@ -16,6 +16,7 @@ import '../../models/merge_job.dart';
 import '../../services/svn_service.dart' show SvnResolveAccept;
 import '../../utils/process_output_decoder.dart'
     show decodeUnicodeEscapes;
+import '../../utils/app_banner.dart';
 import 'step_execution_view.dart' show formatStepTime;
 
 export '../../utils/process_output_decoder.dart' show decodeUnicodeEscapes;
@@ -1098,15 +1099,18 @@ class _MergeExecutionPanelState extends State<MergeExecutionPanel> {
   ///
   /// **架构注意（R131 不变量）**：lib/ 内 `mounted` 出现位置被锁死在两个 State 类
   /// （main_screen_v3 / settings_screen）+ 两个 dialog（log_dialog / config_dialog 的
-  /// context.mounted）。本方法在 `await` 前**先抓 ScaffoldMessenger**，从而完全
+  /// context.mounted）。本方法在 `await` 前**先抓 [OverlayState]**，从而完全
   /// 不引用 `mounted`——既保持 R131 锁，又避免 await-then-context lint。
   Future<void> _copyStepError(String? error) async {
-    final messenger = ScaffoldMessenger.of(context);
+    final overlay = Navigator.of(context).overlay;
     final text = formatStepErrorClipboardText(error);
     await Clipboard.setData(ClipboardData(text: text));
-    messenger.showSnackBar(
-      const SnackBar(content: Text('步骤错误已复制到剪贴板')),
-    );
+    if (overlay != null) {
+      AppBanner.showOnOverlay(
+        overlay,
+        message: '步骤错误已复制到剪贴板',
+      );
+    }
   }
 
   Widget _buildExpandableSection(

@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:svn_auto_merge/execution/executor_status.dart';
 import 'package:svn_auto_merge/execution/step_snapshot.dart';
 import 'package:svn_auto_merge/screens/components/merge_execution_panel.dart';
+import 'package:svn_auto_merge/utils/app_banner.dart';
 
 StepSnapshot _snapshotWith({String? error}) {
   return StepSnapshot(
@@ -120,10 +121,13 @@ void main() {
       );
 
       await tester.tap(find.byIcon(Icons.copy_all));
-      await tester.pump(); // 触发 SnackBar 入场
+      await tester.pump(); // 启动 async 剪贴板写入
+      await tester.pump(); // 完成写入并插入 Overlay
+      await tester.pump(const Duration(milliseconds: 300)); // 入场动画
 
       expect(clipboardText, '冲突: 中文');
       expect(find.text('步骤错误已复制到剪贴板'), findsOneWidget);
+      await tester.pump(AppBanner.defaultDuration);
     });
   });
 }

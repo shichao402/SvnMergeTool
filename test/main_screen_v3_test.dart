@@ -1633,23 +1633,23 @@ void main() {
     });
   });
 
-  group('CSV 导出 SnackBar 加"打开"按钮接线契约（doc-as-test）', () {
-    // 用户场景：导出 CSV 后 SnackBar 仅显示文案"已导出 N 条到 path"，
+  group('CSV 导出 Overlay 横幅加"打开"按钮接线契约（doc-as-test）', () {
+    // 用户场景：导出 CSV 后顶部浮层横幅仅显示文案"已导出 N 条到 path"，
     // 用户想验证导出结果必须手动复制路径打开。同 panel _openConflictFile
     // 已用 resolveOpenFileCommand + Process.run 跨平台打开文件——这里
-    // 加 SnackBarAction "打开" 一键复用同款体验。
+    // 加 actionLabel "打开" 一键复用同款体验。
     final src = File('lib/screens/main_screen_v3.dart').readAsStringSync();
 
-    test('成功 SnackBar 含 SnackBarAction(label: 打开)', () {
+    test('成功横幅含 actionLabel: 打开', () {
       expect(
-        src.contains("label: '打开',"),
+        src.contains("actionLabel: '打开',"),
         isTrue,
-        reason: '导出成功 SnackBar 必须有 打开 action 按钮',
+        reason: '导出成功横幅必须有 打开 action 按钮',
       );
       expect(
-        src.contains('SnackBarAction('),
+        src.contains('AppBanner.show('),
         isTrue,
-        reason: '必须用 SnackBarAction 而非自造按钮',
+        reason: '必须通过 AppBanner 展示顶部横幅',
       );
     });
 
@@ -1684,12 +1684,12 @@ void main() {
       );
     });
 
-    test('SnackBar duration 延长到 6 秒（让用户来得及点"打开"）', () {
-      // 默认 SnackBar 4 秒消失太短——加 action 后必须延长
+    test('横幅 duration 延长到 6 秒（让用户来得及点"打开"）', () {
+      // 默认 4 秒消失太短——加 action 后必须延长
       expect(
         src.contains("duration: const Duration(seconds: 6),"),
         isTrue,
-        reason: 'CSV 导出成功 SnackBar 必须有 6 秒 duration（默认 4 秒太短点不到"打开"）',
+        reason: 'CSV 导出成功横幅必须有 6 秒 duration（默认 4 秒太短点不到"打开"）',
       );
     });
   });

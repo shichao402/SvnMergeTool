@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../utils/process_output_decoder.dart';
+import '../../../utils/app_banner.dart';
 
 /// 渲染"复制到剪贴板"按钮要写入剪贴板的文本。
 ///
@@ -189,9 +190,7 @@ class _LogDialogState extends State<LogDialog> {
     final text = formatLogDialogClipboardText(_filteredLog);
     await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('日志已复制到剪贴板')),
-    );
+    AppBanner.showContext(context, message: '日志已复制到剪贴板');
   }
 
   /// 弹"清空日志"二次确认 AlertDialog。

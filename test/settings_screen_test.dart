@@ -523,23 +523,23 @@ void main() {
     });
   });
 
-  group('_save 持久化失败的 SnackBar 反馈契约（doc-as-test）', () {
+  group('_save 持久化失败的 Overlay 横幅反馈契约（doc-as-test）', () {
     // 用户场景：磁盘满 / 权限拒绝 / SharedPreferences 写入失败时，
     // _save 的 try/catch 原本只写日志却仍 pop(result)，UI 显示"保存成功"
-    // 实际未持久化，下次启动配置丢失。现改为：catch 分支弹 SnackBar 显示
+    // 实际未持久化，下次启动配置丢失。现改为：catch 分支弹顶部横幅显示
     // 具体错误 + 提前 return（不 pop），让用户感知失败可重试或手动取消。
     final src = File('lib/screens/settings_screen.dart').readAsStringSync();
 
-    test('catch 分支弹 SnackBar 显示具体错误', () {
+    test('catch 分支弹横幅显示具体错误', () {
       expect(
-        src.contains("Text('保存设置失败：\$e')"),
+        src.contains("message: '保存设置失败：\$e'"),
         isTrue,
-        reason: 'catch 分支必须 SnackBar 显示具体错误（含 \$e）',
+        reason: 'catch 分支必须横幅显示具体错误（含 \$e）',
       );
       expect(
-        src.contains('backgroundColor: Colors.red'),
+        src.contains('kind: AppBannerKind.error'),
         isTrue,
-        reason: 'catch 分支 SnackBar 必须用红色背景，与成功路径区分',
+        reason: 'catch 分支横幅必须用 error 语义，与成功路径区分',
       );
     });
 

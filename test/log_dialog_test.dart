@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:svn_auto_merge/screens/components/dialogs/log_dialog.dart';
+import 'package:svn_auto_merge/utils/app_banner.dart';
 
 void main() {
   group('formatLogDialogBodyText', () {
@@ -361,8 +362,9 @@ void main() {
 
       expect(clipboardWritten, '[ERROR] b');
 
-      // SnackBar 应弹出
+      // Overlay 顶部横幅应弹出
       expect(find.text('日志已复制到剪贴板'), findsOneWidget);
+      await tester.pump(AppBanner.defaultDuration);
 
       // 还原
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(

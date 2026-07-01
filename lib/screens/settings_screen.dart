@@ -17,6 +17,7 @@ import '../services/svn_auth_clear_service.dart';
 import '../services/svn_auth_gate_service.dart';
 import '../services/svn_service.dart';
 import '../utils/open_directory.dart';
+import '../utils/app_banner.dart';
 
 /// 设置界面返回的结果
 class SettingsResult {
@@ -315,11 +316,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 现改为：弹 SnackBar 显示具体错误 + 提前 return（不 pop），让用户感知失败可重试或手动取消。
       AppLogger.ui.error('保存设置失败', e, stackTrace);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存设置失败：$e'),
-            backgroundColor: Colors.red,
-          ),
+        AppBanner.showContext(
+          context,
+          message: '保存设置失败：$e',
+          kind: AppBannerKind.error,
         );
       }
       return;
@@ -473,17 +473,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       await _refreshAuthStatus();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(formatSvnAuthClearSnackBar(result))),
+      AppBanner.showContext(
+        context,
+        message: formatSvnAuthClearSnackBar(result),
       );
     } catch (e, stackTrace) {
       AppLogger.credential.error('移除 SVN 鉴权缓存失败', e, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('移除 SVN 鉴权信息失败：$e'),
-          backgroundColor: Colors.red,
-        ),
+      AppBanner.showContext(
+        context,
+        message: '移除 SVN 鉴权信息失败：$e',
+        kind: AppBannerKind.error,
       );
     }
   }
@@ -537,28 +537,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await _refreshAuthStatus();
       if (!mounted) return;
       if (result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SVN 鉴权已完成，可返回主界面同步日志'),
-            backgroundColor: Colors.green,
-          ),
+        AppBanner.showContext(
+          context,
+          message: 'SVN 鉴权已完成，可返回主界面同步日志',
+          kind: AppBannerKind.success,
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message ?? '鉴权未完成'),
-            backgroundColor: Colors.orange,
-          ),
+        AppBanner.showContext(
+          context,
+          message: result.message ?? '鉴权未完成',
+          kind: AppBannerKind.warning,
         );
       }
     } catch (e, stackTrace) {
       AppLogger.credential.error('添加 SVN 鉴权失败', e, stackTrace);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('添加鉴权失败：$e'),
-          backgroundColor: Colors.red,
-        ),
+      AppBanner.showContext(
+        context,
+        message: '添加鉴权失败：$e',
+        kind: AppBannerKind.error,
       );
     }
   }
@@ -623,15 +620,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await Process.run(command.executable, command.args);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('不支持的平台，日志目录: $logDir')),
+          AppBanner.showContext(
+            context,
+            message: '不支持的平台，日志目录: $logDir',
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('打开日志目录失败: $e')),
+        AppBanner.showContext(
+          context,
+          message: '打开日志目录失败: $e',
         );
       }
     }
@@ -1003,9 +1002,7 @@ class _SvnAddAuthDialogState extends State<SvnAddAuthDialog> {
 
   void _copyCommands(BuildContext ctx) {
     Clipboard.setData(ClipboardData(text: widget.terminalCommands.join('\n')));
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      const SnackBar(content: Text('已复制终端命令')),
-    );
+    AppBanner.showContext(ctx, message: '已复制终端命令');
   }
 
   void _submitCredentials() {
